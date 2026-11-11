@@ -1,0 +1,13 @@
+own-core | row ids=unique | skew=none | runs=10000 | messages=255705 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=0, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=0, CRASHED=0} | 921 ms
+own-core | row ids=shared | skew=none | runs=10000 | messages=255171 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=0, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=0, CRASHED=0} | 674 ms
+synk-0.38 | row ids=unique | skew=none | runs=10000 | messages=255705 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=0, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=0, CRASHED=0} | 36214 ms
+synk-0.38 | row ids=shared | skew=none | runs=10000 | messages=255180 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=1370, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=3731, CRASHED=0} | 36922 ms
+  first failure: seed 0: [NO_RESURRECTION] 
+synk-0.38-sparse-rows | row ids=unique | skew=none | runs=10000 | messages=255863 | violations={CONVERGENCE=8890, IDEMPOTENCY=0, COMMUTATIVITY=5540, NO_RESURRECTION=9559, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=8539, CRASHED=0} | 29105 ms
+  first failure: seed 0: [CONVERGENCE, COMMUTATIVITY, NO_RESURRECTION, CAUSAL_LAST_WINS] states differ: [{RowKey(table=notes, id=r1-n11)={c0=s21, c1=s21}, RowKey(table=notes, id=r1-n12)={c1=s23}, RowKey(table=notes, id=r1-n10)={c1=s20}, RowKey(table=log, id=r1
+own-core | row ids=unique | skew=+/-3d | runs=10000 | messages=255112 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=0, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=0, CRASHED=0} | 2125 ms
+own-core | row ids=shared | skew=+/-3d | runs=10000 | messages=254038 | violations={CONVERGENCE=0, IDEMPOTENCY=0, COMMUTATIVITY=0, NO_RESURRECTION=0, APPEND_ONLY_KEPT=0, CAUSAL_LAST_WINS=0, CRASHED=0} | 2143 ms
+synk skew check | a={c0=edited-after-seeing-it} | b={c0=from-fast-device}
+own skew check | a={c0=edited-after-seeing-it} | b={c0=edited-after-seeing-it}
+own-core | create=1030 B | one-column edit=82 B | emit+merge=406 ns/op
+synk-0.38 | create=1370 B | one-column edit=1349 B | emit+merge=52713 ns/op
