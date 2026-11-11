@@ -83,6 +83,21 @@ interface KeyManager {
 - **Merge lives in `:core`.** A store implements `MergeState` (cells, tombstones, quarantine) over
   its own tables and calls `MergeEngine.apply` inside one transaction; `LocalStore.apply` is that
   call. `RowStatusResolver` derives held/orphaned rows from merged state alone, so replicas agree.
+- **Room adapter (S2).** `RoomLocalStore` keeps the full merged state in its own `_ds_` tables inside
+  the app database and writes showable rows into the app tables. SQL triggers capture every local
+  write into the outbox in the app transaction and tick the clock in SQL. Requirements on a synced
+  table: a single-column primary key unique across devices (UUID text, not auto-increment) and at
+  least one other column. Misuse aborts the statement: reusing a deleted id, updating an
+  append-only row, changing a primary key. `install` is idempotent and must run on every open and
+  after every migration; it captures rows that existed before sync and writes values that arrived
+  for a column before that column existed. The schema is declared with the `syncSchema { }` DSL;
+  annotations are not implemented.
+- **Backups.** An app must exclude its database from Android automatic backup
+  (`android:allowBackup="false"` or a backup rule): a restored copy would write as the same replica.
+  The engine detects this (`ReplicaStateBehind`) but a way to give the store a new identity is not
+  built yet.
+- **Scheduling (S2).** `SyncScheduler` wraps WorkManager: unique periodic work, debounced on-demand
+  work, sync on app foreground. The worker finds the engine through `DriveSyncWork.setEngineProvider`.
 - **Paths are relative** to the sync root `drivesync/v1/`; a backend applies the root.
 - **Deferred:** the conflict log (S4), `meta.json` and real encryption (S3). Until S3, tests use
   `InsecureTestKeyManager`, which is a scramble, not encryption.

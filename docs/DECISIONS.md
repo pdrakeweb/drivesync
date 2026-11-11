@@ -17,3 +17,4 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-010 | Additions to `LocalStore` beyond ARCHITECTURE §2: `pendingCount()` (C-3), `highestSchemaSeen()`/`noteSchemaSeen()` (schema rule survives restart), and `saveCursor` never moves backwards. | Proposed (S1) |
 | D-011 | Additions to the app-facing surface beyond DESIGN §9: `held` and `orphaned` row lists, `ReplicaInfo.batchesToFetch`, errors `ReplicaStateBehind` and `Unexpected`, fix `ResetThisDevice`. Names are open. | Proposed (S1 review) |
 | D-012 | `APPEND_ONLY` inserts are whole-row (one timestamp); on an id collision the earliest insert wins whole. | Proposed (S1 review) |
+| D-013 | Apps must keep the synced database out of Android automatic backup; the sample sets `allowBackup="false"`. A "reset this device's sync identity" operation is still to be designed. | Proposed (S2) |

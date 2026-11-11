@@ -1,0 +1,21 @@
+== fresh installs
+PASS  empty state says it is empty (A)
+== 1. a note written on A reaches B
+PASS  pending change is counted and visible (A)
+PASS  pending cleared after sync (A)
+PASS  B shows the note from A
+== 2. both devices edit while apart
+PASS  A has all three
+PASS  B has all three
+== 3. delete on one device beats a concurrent edit on the other
+PASS  A: deleted note stays deleted
+PASS  B: deleted note stays deleted
+== 4. the app survives being killed with unsynced changes
+PASS  B received the change made before the kill
+PASS  both end in the synced state (B)
+== storage: names carry no content
+PASS  every stored file name is ids, numbers and hashes only
+PASS  no crash on emulator-5556
+PASS  no crash on emulator-5558
+
+RESULT: PASS
