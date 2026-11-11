@@ -181,8 +181,8 @@ class SyncEngineTest {
             override fun before(op: BlobOp, path: String): Unit = throw IllegalStateException("boom")
         }
         val state = a.sync() as SyncState.Error
-        assertTrue(state.kind is SyncError.StorageUnavailable)
-        assertEquals(Fix.RetryLater, state.fix)
+        assertTrue(state.kind is SyncError.Unexpected)
+        assertEquals(null, state.fix)
     }
 
     @Test

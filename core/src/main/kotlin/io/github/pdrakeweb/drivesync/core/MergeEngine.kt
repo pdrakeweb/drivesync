@@ -2,10 +2,10 @@ package io.github.pdrakeweb.drivesync.core
 
 /** Why a change is being kept aside instead of merged. */
 public sealed interface QuarantineReason {
-    /** The table is not in this app version's registry. Retried on every apply. */
+    /** The table is not in this app version's registry. */
     public data object UnknownTable : QuarantineReason
 
-    /** The app's [ChangeValidator] rejected it. */
+    /** The app's [ChangeValidator] rejected it. Like every quarantined change, retried on every apply. */
     public data class Rejected(val reason: String) : QuarantineReason
 }
 
@@ -33,7 +33,7 @@ public interface MergeState {
 
     public fun quarantined(): Collection<Quarantined>
 
-    /** Idempotent: quarantining the same change twice keeps one entry. */
+    /** One entry per change: quarantining a change again replaces its earlier entry. */
     public fun quarantine(item: Quarantined)
 
     public fun release(item: Quarantined)
@@ -62,10 +62,9 @@ public object MergeEngine {
     public fun apply(state: MergeState, changes: List<Change>, registry: MergeRegistry): ApplyReport {
         var applied = 0
         var ignored = 0
-        // An app upgrade may have taught the registry a table that was unknown when these arrived.
-        val retry = state.quarantined().filter {
-            it.reason == QuarantineReason.UnknownTable && registry.table(it.change.table) != null
-        }
+        // Everything set aside is tried again on every apply: an app upgrade may have taught the
+        // registry a table, or relaxed the validator. What is still refused is quarantined again.
+        val retry = state.quarantined().toList()
         retry.forEach(state::release)
 
         for (change in retry.map { it.change } + changes) {
@@ -111,14 +110,24 @@ public object MergeEngine {
                     false
                 }
 
-            // The first insert is the row; later writes to it are not edits we accept.
-            MergeClass.APPEND_ONLY ->
-                if (current == null || change.hlc < current.hlc) {
-                    state.putCell(row, column, cell)
-                    true
-                } else {
-                    false
+            // An insert stamps all its columns with one timestamp. The row is the columns of the
+            // earliest insert seen, whole: a later write to the same id, from any device, is not an
+            // edit we accept, and two inserts are never mixed.
+            MergeClass.APPEND_ONLY -> {
+                val rowClock = cells.values.minOfOrNull { it.hlc }
+                when {
+                    rowClock == null || change.hlc < rowClock -> {
+                        state.clearCells(row)
+                        state.putCell(row, column, cell)
+                        true
+                    }
+                    change.hlc == rowClock && current == null -> {
+                        state.putCell(row, column, cell)
+                        true
+                    }
+                    else -> false
                 }
+            }
 
             // All columns of one whole-row write share a timestamp. The row is the set of columns
             // carrying the highest timestamp seen.

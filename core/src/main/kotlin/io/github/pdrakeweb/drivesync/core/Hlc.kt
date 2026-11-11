@@ -25,6 +25,10 @@ public value class ReplicaId(public val value: String) {
  */
 @Serializable
 public data class Hlc(val time: Long, val replica: ReplicaId) : Comparable<Hlc> {
+    init {
+        require(time >= 0) { "Hlc time out of range" }
+    }
+
     val wallMillis: Long get() = time ushr COUNTER_BITS
     val counter: Int get() = (time and COUNTER_MASK).toInt()
 
@@ -78,6 +82,7 @@ public class HlcClock(
         val now = wallClock().coerceIn(0, Hlc.MAX_WALL) shl Hlc.COUNTER_BITS
         // When the counter is exhausted the increment carries into the wall bits, which keeps
         // the clock monotonic without failing.
+        check(last < Long.MAX_VALUE) { "clock exhausted" }
         last = if (now > last) now else last + 1
         return Hlc(last, replica)
     }

@@ -23,8 +23,13 @@ public data class TableSpec(
 
 /**
  * App-supplied check on incoming changes. Return null to accept, or a reason to reject.
- * Rejected changes are quarantined and reported, never dropped. Must be deterministic: replicas
+ * Rejected changes are quarantined and reported, never dropped, and tried again on every later
+ * apply. Must be deterministic: replicas
  * running different validators can hold different data.
+ *
+ * Local writes are not validated: the app is trusted with its own data. A validator must therefore
+ * accept everything the same app version can write, or a change kept on the device that made it
+ * would be quarantined everywhere else.
  */
 public fun interface ChangeValidator {
     public fun validate(change: Change): String?

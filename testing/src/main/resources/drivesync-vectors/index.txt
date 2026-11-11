@@ -11,3 +11,4 @@ clock-skew-later-edit-wins.json
 child-held-until-parent-arrives.json
 child-orphaned-when-parent-deleted.json
 unknown-columns-are-kept.json
+append-only-same-id-first-insert-wins-whole.json
