@@ -97,6 +97,17 @@ public abstract class LocalStoreContract {
         assertEquals(mapOf(ReplicaId("a") to 4L, ReplicaId("b") to 1L), store.cursors())
     }
 
+    public fun `cursors and the schema floor never move backwards`(): Unit = runBlocking {
+        val store = newStore()
+        store.saveCursor(ReplicaId("a"), 5)
+        store.saveCursor(ReplicaId("a"), 2)
+        assertEquals(5L, store.cursors()[ReplicaId("a")])
+        assertEquals(0, store.highestSchemaSeen())
+        store.noteSchemaSeen(3)
+        store.noteSchemaSeen(1)
+        assertEquals(3, store.highestSchemaSeen())
+    }
+
     /** Every check, by name. Run each as its own test. */
     public val checks: Map<String, () -> Unit> = linkedMapOf(
         "outbox holds local writes in timestamp order and counts them" to
@@ -109,6 +120,8 @@ public abstract class LocalStoreContract {
         "a local write after a remote change from a fast clock still wins" to
             { `a local write after a remote change from a fast clock still wins`() },
         "cursors are saved per replica" to { `cursors are saved per replica`() },
+        "cursors and the schema floor never move backwards" to
+            { `cursors and the schema floor never move backwards`() },
     )
 
     private fun assertEquals(expected: Any?, actual: Any?, message: String = "") {
