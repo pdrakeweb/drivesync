@@ -1,0 +1,12 @@
+{
+  "name": "lww-fields-tie-broken-by-replica-id",
+  "description": "Same wall time and counter on two devices: the replica id, compared as a string, breaks the tie. The counter outranks the replica id.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "from a"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "from b"}, "hlc": "1000:0:b"},
+    {"table": "notes", "row": "n1", "column": "body", "value": {"text": "b, counter 0"}, "hlc": "1000:0:b"},
+    {"table": "notes", "row": "n1", "column": "body", "value": {"text": "a, counter 1"}, "hlc": "1000:1:a"}
+  ],
+  "expected": {"rows": {"notes": {"n1": {"title": {"text": "from b"}, "body": {"text": "a, counter 1"}}}}}
+}

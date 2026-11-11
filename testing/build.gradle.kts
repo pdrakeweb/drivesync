@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
 }
 kotlin {
     compilerOptions {
@@ -14,8 +15,17 @@ java {
 }
 dependencies {
     api(project(":core"))
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
+    implementation(libs.serialization.json)
+    // The contract suites are abstract JUnit classes that other modules extend.
+    api(platform(libs.junit.bom))
+    api(libs.junit.jupiter)
+
     testRuntimeOnly(libs.junit.launcher)
 }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    maxHeapSize = "2g"
+    // 500 simulated runs per build; the nightly job and the S1 proof pass -PsimRuns=10000.
+    systemProperty("drivesync.simRuns", providers.gradleProperty("simRuns").getOrElse("500"))
+    testLogging { showStandardStreams = true }
+}
