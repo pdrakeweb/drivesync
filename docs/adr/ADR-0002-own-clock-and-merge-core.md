@@ -45,7 +45,7 @@ Other measurements:
 | Emit + merge of that edit | 0.4 µs | 53 µs |
 | Runtime dependencies added to `:core` | none beyond the Kotlin standard library | 15 more jars, 5.9 MB, including `kotlin-reflect` 1.8.10 (3 MB), okio, atomicfu, kotlinx-datetime 0.4.0 |
 | With kotlinx-datetime 0.8.0 on the classpath (current stable) | unaffected | every call fails: `NoClassDefFoundError: kotlinx/datetime/Clock$System` |
-| Upstream | — | last commit 22 Nov 2023 (Kotlin 1.9.20); no Maven Central release; JitPack build of the latest commit on `main` is marked failed |
+| Upstream | — | last commit 22 Nov 2023 (Kotlin 1.9.20); no Maven Central release, JitPack only |
 
 ## Why Synk fails, in its own code
 
