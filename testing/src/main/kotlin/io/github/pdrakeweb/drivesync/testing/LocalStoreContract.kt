@@ -103,4 +103,16 @@ public abstract class LocalStoreContract {
         store.saveCursor(ReplicaId("a"), 4)
         assertEquals(mapOf(ReplicaId("a") to 4L, ReplicaId("b") to 1L), store.cursors())
     }
+
+    @Test
+    public fun `cursors and the schema floor never move backwards`(): Unit = runBlocking {
+        val store = newStore()
+        store.saveCursor(ReplicaId("a"), 5)
+        store.saveCursor(ReplicaId("a"), 2)
+        assertEquals(5L, store.cursors()[ReplicaId("a")])
+        assertEquals(0, store.highestSchemaSeen())
+        store.noteSchemaSeen(3)
+        store.noteSchemaSeen(1)
+        assertEquals(3, store.highestSchemaSeen())
+    }
 }
