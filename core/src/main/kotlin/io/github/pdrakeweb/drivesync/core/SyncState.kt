@@ -26,12 +26,22 @@ public sealed interface SyncError {
     /** An object failed authentication, is at the wrong path, or does not parse. */
     public data class Corrupt(val path: String) : SyncError
 
+    /**
+     * This device's sync state is older than what it has already uploaded: the database was
+     * restored from a backup or copied from another device. Pushing would reuse sequence numbers
+     * for different content, so nothing is pushed until the store takes a new identity.
+     */
+    public data class ReplicaStateBehind(val localSeq: Long, val storedSeq: Long) : SyncError
+
+    /** A failure the library did not anticipate (a bug, or a local database error). */
+    public data class Unexpected(val detail: String) : SyncError
+
     /** Another device already writes a newer schema; this app version must not push. */
     public data class SchemaTooOld(val local: Int, val newest: Int) : SyncError
 }
 
 /** What the person can do about a [SyncError]. */
-public enum class Fix { SignIn, FreeUpSpace, RetryLater, EnterPassphrase, UpdateApp }
+public enum class Fix { SignIn, FreeUpSpace, RetryLater, EnterPassphrase, UpdateApp, ResetThisDevice }
 
 public class SyncException(public val error: SyncError, cause: Throwable? = null) :
     Exception(error.toString(), cause)
@@ -62,6 +72,8 @@ public data class ReplicaInfo(
     val lastSeen: Long,
     /** How many of this device's batches that device has not applied yet. */
     val batchesBehind: Long,
+    /** How many of that device's batches this device has not applied yet (waiting on a lagging listing, or missing). */
+    val batchesToFetch: Long,
     val schemaVersion: Int,
     val retired: Boolean,
 )

@@ -60,7 +60,14 @@ public interface LocalStore {
     /** Highest batch sequence applied per replica; this replica's own entry is its last pushed batch. */
     public suspend fun cursors(): Map<ReplicaId, Long>
 
+    /** Never moves a cursor backwards: saving a lower value than the stored one is a no-op. */
     public suspend fun saveCursor(replica: ReplicaId, seq: Long)
+
+    /** The highest schema version passed to [noteSchemaSeen], 0 if none. Persisted. */
+    public suspend fun highestSchemaSeen(): Int
+
+    /** Records that data written with [version] exists; lower values than the stored one are ignored. */
+    public suspend fun noteSchemaSeen(version: Int)
 }
 
 public enum class KeyState { Ready, NeedsPassphrase, NeedsJoin }

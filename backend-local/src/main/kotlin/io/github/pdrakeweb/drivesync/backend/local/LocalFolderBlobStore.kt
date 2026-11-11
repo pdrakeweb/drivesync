@@ -9,11 +9,15 @@ import io.github.pdrakeweb.drivesync.core.SyncException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.util.UUID
 import kotlin.io.path.fileSize
 import kotlin.io.path.isRegularFile
@@ -63,10 +67,19 @@ public class LocalFolderBlobStore(root: Path, private val pageSize: Int = 1_000)
             try {
                 // A hard link fails if the name is taken, which makes create-if-absent atomic.
                 Files.createLink(target, temp)
-            } catch (e: UnsupportedOperationException) {
-                // File systems without hard links (FAT on removable media): a plain move, which
-                // also refuses to replace an existing file.
-                Files.move(temp, target)
+            } catch (e: FileAlreadyExistsException) {
+                throw e
+            } catch (e: Exception) {
+                if (e !is UnsupportedOperationException && e !is FileSystemException) throw e
+                // File systems without hard links (FAT and exFAT on removable media, Android shared
+                // storage). Creating the name exclusively is atomic; the content follows, so a
+                // reader may briefly see a short object, which fails authentication and is retried
+                // on its next cycle.
+                FileChannel.open(target, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { channel ->
+                    val buffer = ByteBuffer.wrap(bytes)
+                    while (buffer.hasRemaining()) channel.write(buffer)
+                    channel.force(true)
+                }
             }
             PutResult.Created
         } catch (e: FileAlreadyExistsException) {
@@ -93,7 +106,13 @@ public class LocalFolderBlobStore(root: Path, private val pageSize: Int = 1_000)
     private fun writeTemp(target: Path, bytes: ByteArray): Path {
         Files.createDirectories(target.parent)
         val temp = target.resolveSibling(TEMP_PREFIX + UUID.randomUUID())
-        Files.write(temp, bytes)
+        // Flushed to the device before the name becomes visible, so a power cut cannot leave a
+        // visible object with missing content.
+        FileChannel.open(temp, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { channel ->
+            val buffer = ByteBuffer.wrap(bytes)
+            while (buffer.hasRemaining()) channel.write(buffer)
+            channel.force(true)
+        }
         return temp
     }
 
@@ -110,13 +129,20 @@ public class LocalFolderBlobStore(root: Path, private val pageSize: Int = 1_000)
         try {
             block()
         } catch (e: IOException) {
-            val full = e.message.orEmpty().contains("space", ignoreCase = true)
+            // "Disk full" has no portable exception type; ask the file store instead of guessing
+            // from the message, which contains the path and is localised.
+            val full = try {
+                Files.getFileStore(root).usableSpace < MIN_FREE_BYTES
+            } catch (ignored: IOException) {
+                false
+            }
             throw SyncException(if (full) SyncError.QuotaExceeded else SyncError.StorageUnavailable(e.toString()), e)
         }
     }
 
     private companion object {
         const val TEMP_PREFIX = ".tmp-"
+        const val MIN_FREE_BYTES = 1L shl 20
         val SAFE_PATH = Regex("[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
     }
 }

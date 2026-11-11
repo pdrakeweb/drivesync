@@ -39,7 +39,8 @@ public class InMemoryLocalStore(
     private val outbox = ArrayList<Change>()
     private var pinned = 0
     private val cursors = HashMap<ReplicaId, Long>()
-    private val quarantine = LinkedHashSet<Quarantined>()
+    private val quarantine = LinkedHashMap<Change, Quarantined>()
+    private var schemaSeen = 0
 
     private fun <T> locked(block: () -> T): T = synchronized(this, block)
 
@@ -60,12 +61,12 @@ public class InMemoryLocalStore(
         override fun clearCells(row: RowRef) {
             cells.remove(row)
         }
-        override fun quarantined(): Collection<Quarantined> = quarantine.toList()
+        override fun quarantined(): Collection<Quarantined> = quarantine.values.toList()
         override fun quarantine(item: Quarantined) {
-            quarantine += item
+            quarantine[item.change] = item
         }
         override fun release(item: Quarantined) {
-            quarantine -= item
+            quarantine.remove(item.change)
         }
     }
 
@@ -80,7 +81,8 @@ public class InMemoryLocalStore(
         val row = RowRef(table, rowId)
         check(row !in tombstones) { "$row was deleted; ids are never reused" }
         if (spec.mergeClass == MergeClass.APPEND_ONLY) check(row !in cells) { "$row is append-only" }
-        val shared = if (spec.mergeClass == MergeClass.LWW_ROW) clock.tick() else null
+        // Whole-row classes stamp every column of one write with the same timestamp.
+        val shared = if (spec.mergeClass == MergeClass.LWW_FIELDS) null else clock.tick()
         val changes = columns.entries.sortedBy { it.key }.map { (column, value) ->
             Change(table, rowId, column, value, shared ?: clock.tick())
         }
@@ -120,7 +122,7 @@ public class InMemoryLocalStore(
         MergedState(cells.mapValues { it.value.toMap() }, tombstones.toMap())
 
     @Synchronized
-    public fun quarantined(): List<Quarantined> = quarantine.toList()
+    public fun quarantined(): List<Quarantined> = quarantine.values.toList()
 
     override suspend fun drainOutbox(max: Int): List<Change> = locked {
         if (pinned == 0 && outbox.isNotEmpty()) {
@@ -162,6 +164,12 @@ public class InMemoryLocalStore(
     override suspend fun cursors(): Map<ReplicaId, Long> = locked { cursors.toMap() }
 
     override suspend fun saveCursor(replica: ReplicaId, seq: Long): Unit = locked {
-        cursors[replica] = seq
+        cursors[replica] = maxOf(seq, cursors[replica] ?: 0)
+    }
+
+    override suspend fun highestSchemaSeen(): Int = locked { schemaSeen }
+
+    override suspend fun noteSchemaSeen(version: Int): Unit = locked {
+        schemaSeen = maxOf(schemaSeen, version)
     }
 }

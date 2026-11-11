@@ -43,7 +43,7 @@ class MergePropertyTest {
             val value = Value.Text("v${changes.size}")
             when {
                 rnd.nextInt(8) == 0 -> changes += Change.tombstone(table, rowId, hlc)
-                table == "rows" -> listOf("a", "b", "c").shuffled(rnd).take(rnd.nextInt(1, 4))
+                table != "fields" -> listOf("a", "b", "c").shuffled(rnd).take(rnd.nextInt(1, 4))
                     .forEach { changes += Change(table, rowId, it, value, hlc) }
                 else -> changes += Change(table, rowId, "c${rnd.nextInt(3)}", value, hlc)
             }
@@ -122,7 +122,10 @@ class MergePropertyTest {
                 val byColumn = writes.groupBy { it.column!! }
                 expected[row] = when (row.table) {
                     "fields" -> byColumn.mapValues { (_, w) -> w.maxBy { it.hlc }.let { Cell(it.value!!, it.hlc) } }
-                    "append" -> byColumn.mapValues { (_, w) -> w.minBy { it.hlc }.let { Cell(it.value!!, it.hlc) } }
+                    "append" -> {
+                        val oldest = writes.minOf { it.hlc }
+                        writes.filter { it.hlc == oldest }.associate { it.column!! to Cell(it.value!!, it.hlc) }
+                    }
                     else -> {
                         val newest = writes.maxOf { it.hlc }
                         writes.filter { it.hlc == newest }.associate { it.column!! to Cell(it.value!!, it.hlc) }

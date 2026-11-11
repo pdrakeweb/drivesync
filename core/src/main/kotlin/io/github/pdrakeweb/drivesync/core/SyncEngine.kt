@@ -25,6 +25,9 @@ public class SyncConfig(
  *
  * Scheduling is the caller's job. [sync] never throws for an expected failure; it returns and
  * publishes a typed [SyncState] instead.
+ *
+ * Use one engine per local store. A second engine on the same store is safe (cursors never move
+ * backwards, pushes are idempotent) but wasteful.
  */
 public class SyncEngine(
     private val replicaId: ReplicaId,
@@ -38,6 +41,8 @@ public class SyncEngine(
     private val mutex = Mutex()
     private val _state = MutableStateFlow<SyncState>(SyncState.Idle(null))
     private val _pending = MutableStateFlow(0)
+    private val _held = MutableStateFlow<List<RowRef>>(emptyList())
+    private val _orphaned = MutableStateFlow<List<RowRef>>(emptyList())
 
     @Volatile
     private var knownReplicas: Map<ReplicaId, ReplicaFile> = emptyMap()
@@ -47,6 +52,12 @@ public class SyncEngine(
     /** Local changes not yet pushed. Refreshed by [sync] and [refreshPending]. */
     public val pending: StateFlow<Int> = _pending.asStateFlow()
 
+    /** Rows kept but not shown because a parent has not arrived yet. Refreshed by [sync]. */
+    public val held: StateFlow<List<RowRef>> = _held.asStateFlow()
+
+    /** Rows kept but not shown because a parent was deleted; the app decides what to do with them. */
+    public val orphaned: StateFlow<List<RowRef>> = _orphaned.asStateFlow()
+
     /** Call after local writes so [pending] reflects them before the next cycle. */
     public suspend fun refreshPending() {
         _pending.value = local.pendingCount()
@@ -54,7 +65,8 @@ public class SyncEngine(
 
     /** Other devices as of the last cycle that reached storage. */
     public suspend fun devices(): List<ReplicaInfo> {
-        val ownLastSeq = local.cursors()[replicaId] ?: 0
+        val cursors = local.cursors()
+        val ownLastSeq = cursors[replicaId] ?: 0
         return knownReplicas.values.filter { it.replicaId != replicaId }.map {
             ReplicaInfo(
                 replicaId = it.replicaId,
@@ -62,6 +74,7 @@ public class SyncEngine(
                 platform = it.platform,
                 lastSeen = it.lastSeen,
                 batchesBehind = (ownLastSeq - (it.cursors[replicaId.value] ?: 0)).coerceAtLeast(0),
+                batchesToFetch = (it.lastSeq - (cursors[it.replicaId] ?: 0)).coerceAtLeast(0),
                 schemaVersion = it.schemaVersion,
                 retired = it.retired,
             )
@@ -71,7 +84,7 @@ public class SyncEngine(
     /** One full cycle. Concurrent calls run one after another. */
     public suspend fun sync(): SyncState = mutex.withLock {
         val before = _state.value
-        val result = try {
+        var result = try {
             cycle()
         } catch (e: SyncException) {
             stateFor(e.error)
@@ -79,10 +92,17 @@ public class SyncEngine(
             _state.value = before
             throw e
         } catch (e: Exception) {
-            // A bug or an undeclared backend failure must still surface as a typed state.
-            stateFor(SyncError.StorageUnavailable("unexpected: $e"))
+            // A bug or a local database failure must still surface as a typed state.
+            stateFor(SyncError.Unexpected(e.toString()))
         }
-        _pending.value = local.pendingCount()
+        try {
+            _pending.value = local.pendingCount()
+        } catch (e: CancellationException) {
+            _state.value = before
+            throw e
+        } catch (e: Exception) {
+            result = stateFor(SyncError.Unexpected(e.toString()))
+        }
         _state.value = result
         result
     }
@@ -90,35 +110,51 @@ public class SyncEngine(
     private suspend fun cycle(): SyncState {
         if (keys.state() != KeyState.Ready) return SyncState.NeedsKey
         progress(SyncPhase.Preparing)
-        // An empty apply re-tries changes quarantined before an app upgrade and reports totals.
-        var quarantined = local.apply(emptyList(), registry).quarantined
+        // An empty apply re-tries quarantined changes (an app upgrade may now accept them) and
+        // reports what is currently set aside.
+        var report = local.apply(emptyList(), registry)
 
-        val replicas = readReplicaFiles()
+        // A bad object from one replica is remembered and reported, but does not stop this
+        // device pushing, pulling from the others, or publishing its manifest.
+        val problems = ArrayList<SyncError>()
+        val replicas = readReplicaFiles(problems)
         knownReplicas = replicas
-        val newestSchema = replicas.values.maxOfOrNull { it.schemaVersion } ?: 0
-        val schemaTooOld = newestSchema > registry.schemaVersion
 
+        val ownSeq = local.cursors()[replicaId] ?: 0
+        val storedSeq = replicas[replicaId]?.lastSeq ?: 0
+        if (storedSeq > ownSeq) return stateFor(SyncError.ReplicaStateBehind(ownSeq, storedSeq))
+
+        replicas.values.forEach { local.noteSchemaSeen(it.schemaVersion) }
         var batches = 0
-        if (!schemaTooOld) {
-            // Announce a schema upgrade before the first batch that uses it, so a device that
-            // applies such a batch finds the new version in this manifest on its next cycle.
+        if (local.highestSchemaSeen() <= registry.schemaVersion) {
+            // Announce a schema upgrade before the first batch that uses it.
             if (replicas[replicaId]?.schemaVersion != registry.schemaVersion) writeOwnReplicaFile()
             batches = push()
         }
-        for ((id, _) in replicas) {
+        for (id in replicas.keys) {
             if (id == replicaId) continue
-            pull(id, batches) { report ->
-                batches++
-                quarantined = report.quarantined
+            try {
+                pull(id, batches) {
+                    batches++
+                    report = it
+                }
+            } catch (e: SyncException) {
+                if (e.error is SyncError.Corrupt || e.error is SyncError.UnsupportedFormat) problems += e.error else throw e
             }
         }
         progress(SyncPhase.Finishing, batches)
         writeOwnReplicaFile()
+        _held.value = report.held
+        _orphaned.value = report.orphaned
 
-        if (schemaTooOld) return stateFor(SyncError.SchemaTooOld(registry.schemaVersion, newestSchema))
-        val firstQuarantined = quarantined.entries.minByOrNull { it.key }
-        if (firstQuarantined != null) {
-            return stateFor(SyncError.Quarantined(firstQuarantined.key, firstQuarantined.value))
+        // Decided after the pull: a batch applied in this very cycle may carry a newer schema.
+        val newestSchema = local.highestSchemaSeen()
+        if (newestSchema > registry.schemaVersion) {
+            return stateFor(SyncError.SchemaTooOld(registry.schemaVersion, newestSchema))
+        }
+        problems.firstOrNull()?.let { return stateFor(it) }
+        report.quarantined.entries.minByOrNull { it.key }?.let {
+            return stateFor(SyncError.Quarantined(it.key, it.value))
         }
         return SyncState.Idle(wallClock())
     }
@@ -134,13 +170,28 @@ public class SyncEngine(
             val seq = (local.cursors()[replicaId] ?: 0) + 1
             val plain = WireCodec.encodeBatch(Batch.of(replicaId, seq, registry.schemaVersion, changes))
             val path = Paths.batch(replicaId, seq, plain)
-            blobs.putIfAbsent(path, keys.encrypt(path, plain))
+            val cipher = keys.encrypt(path, plain)
+            if (blobs.putIfAbsent(path, cipher) == PutResult.AlreadyExists && !holds(path, plain)) {
+                // An earlier attempt left a truncated or damaged object under this name. The file is
+                // this replica's own, so it may be replaced; acknowledging without this would lose
+                // the changes for every other device.
+                blobs.putOwned(path, cipher)
+            }
             // Cursor before acknowledgement: a crash between the two re-sends these changes under
             // the next sequence number (harmless, merging is idempotent) instead of reusing this
             // number for different content.
             local.saveCursor(replicaId, seq)
             local.ackOutbox(changes.maxOf { it.hlc.time })
             pushed++
+        }
+    }
+
+    private suspend fun holds(path: String, plain: ByteArray): Boolean {
+        val stored = blobs.get(path) ?: return false
+        return try {
+            keys.decrypt(path, stored).contentEquals(plain)
+        } catch (e: SyncException) {
+            if (e.error is SyncError.Corrupt) false else throw e
         }
     }
 
@@ -167,21 +218,30 @@ public class SyncEngine(
                 }
                 batch
             }
-            for (batch in batches) onApplied(local.apply(batch.changes, registry))
+            for (batch in batches) {
+                // Before applying: once data of a newer schema is merged, this app version must
+                // not push again, even if the process dies right after.
+                local.noteSchemaSeen(batch.header.schemaVersion)
+                onApplied(local.apply(batch.changes, registry))
+            }
             local.saveCursor(from, next)
             count++
             next++
         }
     }
 
-    private suspend fun readReplicaFiles(): Map<ReplicaId, ReplicaFile> {
+    private suspend fun readReplicaFiles(problems: MutableList<SyncError>): Map<ReplicaId, ReplicaFile> {
         val result = LinkedHashMap<ReplicaId, ReplicaFile>()
         for (info in listAll(Paths.REPLICAS).sortedBy { it.path }) {
             val id = Paths.parseReplicaFile(info.path) ?: continue
             val cipher = blobs.get(info.path) ?: continue
-            val file = WireCodec.decodeReplicaFile(info.path, keys.decrypt(info.path, cipher))
-            if (file.replicaId != id) throw SyncException(SyncError.Corrupt(info.path))
-            result[id] = file
+            try {
+                val file = WireCodec.decodeReplicaFile(info.path, keys.decrypt(info.path, cipher))
+                if (file.replicaId != id) throw SyncException(SyncError.Corrupt(info.path))
+                result[id] = file
+            } catch (e: SyncException) {
+                if (e.error is SyncError.Corrupt || e.error is SyncError.UnsupportedFormat) problems += e.error else throw e
+            }
         }
         return result
     }
@@ -225,6 +285,8 @@ public class SyncEngine(
         is SyncError.Quarantined -> SyncState.Error(error, Fix.UpdateApp)
         is SyncError.UnsupportedFormat -> SyncState.Error(error, Fix.UpdateApp)
         is SyncError.SchemaTooOld -> SyncState.Error(error, Fix.UpdateApp)
+        is SyncError.ReplicaStateBehind -> SyncState.Error(error, Fix.ResetThisDevice)
         is SyncError.Corrupt -> SyncState.Error(error, null)
+        is SyncError.Unexpected -> SyncState.Error(error, null)
     }
 }

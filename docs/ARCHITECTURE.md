@@ -54,8 +54,18 @@ interface KeyManager {
 
 ### 2.1 Contracts settled while building S1
 
-- **`LocalStore.pendingCount()`** is an addition to the interface above (D-010, proposed): the
-  engine cannot publish `pending` (invariant C-3) without it.
+- **Additions to `LocalStore`** (D-010, proposed): `pendingCount()`, because the engine cannot
+  publish `pending` (C-3) without it; `highestSchemaSeen()` / `noteSchemaSeen()`, so the schema
+  rule survives a restart; and `saveCursor` never moves a cursor backwards.
+- **Additions to what the app sees** (D-011, proposed): `SyncEngine.held` and `orphaned`;
+  `ReplicaInfo.batchesToFetch`; errors `ReplicaStateBehind` (database restored from a backup or
+  cloned: nothing is pushed, fix `ResetThisDevice`) and `Unexpected`.
+- **Failure containment.** A corrupt or newer-format object from one replica is reported but does
+  not stop pushing, pulling from other replicas, or publishing the manifest. An existing object
+  under a batch name is verified before the outbox is acknowledged, and repaired if damaged.
+- **Quarantine** holds one entry per change and is retried in full on every apply.
+- **`APPEND_ONLY` is whole-row.** All columns of one insert share a timestamp; the earliest insert
+  of a row id is kept whole. (`LWW_ROW` is the mirror image: the latest whole write.)
 - **Timestamps.** `Hlc` is `(time: Long, replica)`, where `time` packs wall milliseconds (48 bits)
   and a counter (16 bits). `ackOutbox(upTo)` takes that packed time. A remote timestamp is always
   absorbed, never rejected (ADR-0002).
