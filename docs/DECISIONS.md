@@ -14,3 +14,4 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-007 | First consumer: NextRep (`pdrakeweb/nextrep`). | Pete (words) |
 | D-008 | Write our own clock and merge core; do not adopt Synk. Measured in ADR-0002 (Synk resurrects deleted rows and loses edits when a row id is created on two devices, diverges under clock skew, drops late-added columns). | Proposed (S0 spike, 11 Nov 2026) |
 | D-009 | Maven namespace and Kotlin package root: `io.github.pdrakeweb` (artifacts `io.github.pdrakeweb:drivesync-<module>`, packages `io.github.pdrakeweb.drivesync.*`). | Pete (picked), 11 Nov 2026 |
+| D-010 | Add `LocalStore.pendingCount()` to the interface in ARCHITECTURE §2: required to publish pending changes (C-3). Other S1 contracts are listed in ARCHITECTURE §2.1. | Proposed (S1) |

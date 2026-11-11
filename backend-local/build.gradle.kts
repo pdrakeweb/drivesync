@@ -14,8 +14,8 @@ java {
 }
 dependencies {
     api(project(":core"))
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
+
+    testImplementation(project(":testing"))
     testRuntimeOnly(libs.junit.launcher)
 }
 tasks.test { useJUnitPlatform() }

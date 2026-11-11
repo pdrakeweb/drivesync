@@ -52,6 +52,31 @@ interface KeyManager {
 }
 ```
 
+### 2.1 Contracts settled while building S1
+
+- **`LocalStore.pendingCount()`** is an addition to the interface above (D-010, proposed): the
+  engine cannot publish `pending` (invariant C-3) without it.
+- **Timestamps.** `Hlc` is `(time: Long, replica)`, where `time` packs wall milliseconds (48 bits)
+  and a counter (16 bits). `ackOutbox(upTo)` takes that packed time. A remote timestamp is always
+  absorbed, never rejected (ADR-0002).
+- **`drainOutbox` is stable until acknowledged.** Once it has returned a set of changes it returns
+  exactly that set until `ackOutbox` covers it, across process death. A retried push therefore
+  rebuilds the identical batch, which gets the identical name, and `putIfAbsent` finds it. The
+  engine saves its own cursor before acknowledging, so a crash between the two re-sends the same
+  changes under the next sequence number (harmless: merging is idempotent) and never reuses a
+  number for different content.
+- **Pull is strictly sequential per replica.** A batch missing from a listing stops that replica's
+  pull for the cycle; nothing after the gap is applied.
+- **Schema announcement.** A replica rewrites its manifest before the first batch written with a
+  new schema version, so a device that applied such a batch finds the version on its next cycle
+  and stops pushing until the app is updated.
+- **Merge lives in `:core`.** A store implements `MergeState` (cells, tombstones, quarantine) over
+  its own tables and calls `MergeEngine.apply` inside one transaction; `LocalStore.apply` is that
+  call. `RowStatusResolver` derives held/orphaned rows from merged state alone, so replicas agree.
+- **Paths are relative** to the sync root `drivesync/v1/`; a backend applies the root.
+- **Deferred:** the conflict log (S4), `meta.json` and real encryption (S3). Until S3, tests use
+  `InsecureTestKeyManager`, which is a scramble, not encryption.
+
 ## 3. Wire formats (versioned)
 
 - **Batch** — header `{format: 1, replicaId, seq, schemaVersion, hlcFrom, hlcTo, count}` followed
