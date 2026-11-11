@@ -14,8 +14,17 @@ java {
 }
 dependencies {
     api(project(":core"))
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
+    // Tink: authenticated encryption (XChaCha20-Poly1305). The tink-android artifact is a plain
+    // jar with its protobuf dependency shaded, so it serves JVM tests and Android alike.
+    implementation(libs.tink)
+    // Bouncy Castle: Argon2id, the memory-hard passphrase derivation. Neither the JDK nor Tink has one.
+    implementation(libs.bouncycastle)
+
+    testImplementation(project(":testing"))
+    testImplementation(libs.serialization.json)
     testRuntimeOnly(libs.junit.launcher)
 }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    testLogging { showStandardStreams = true }
+}

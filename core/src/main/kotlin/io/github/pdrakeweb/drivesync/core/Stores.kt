@@ -83,10 +83,21 @@ public class WrappedKey(
 public interface KeyManager {
     public suspend fun state(): KeyState
     public suspend fun create(passphrase: CharArray): WrappedKey
+    /**
+     * Throws [SyncException] with [SyncError.KeyMissing] when the passphrase does not open [wrapped];
+     * the manager then holds no key at all.
+     */
     public suspend fun unlock(passphrase: CharArray, wrapped: WrappedKey)
 
     /** Authenticated encryption bound to [path], so an object moved to another path is rejected. */
     public suspend fun encrypt(path: String, plain: ByteArray): ByteArray
+
+    /**
+     * A keyed fingerprint of [plain] as 16 lower-case hex digits, used in file names. The same input
+     * always gives the same result on every device holding the key; without the key it reveals
+     * nothing, so a file name cannot be used to confirm a guess at its content (invariant C-2).
+     */
+    public suspend fun fingerprint(plain: ByteArray): String
 
     /** Throws [SyncException] with [SyncError.Corrupt] when the object is tampered or misplaced. */
     public suspend fun decrypt(path: String, cipher: ByteArray): ByteArray

@@ -169,7 +169,7 @@ public class SyncEngine(
             progress(SyncPhase.Pushing, pushed)
             val seq = (local.cursors()[replicaId] ?: 0) + 1
             val plain = WireCodec.encodeBatch(Batch.of(replicaId, seq, registry.schemaVersion, changes))
-            val path = Paths.batch(replicaId, seq, plain)
+            val path = Paths.batch(replicaId, seq, keys.fingerprint(plain))
             val cipher = keys.encrypt(path, plain)
             if (blobs.putIfAbsent(path, cipher) == PutResult.AlreadyExists && !holds(path, plain)) {
                 // An earlier attempt left a truncated or damaged object under this name. The file is
@@ -213,7 +213,7 @@ public class SyncEngine(
                 val plain = keys.decrypt(path, cipher)
                 val batch = WireCodec.decodeBatch(path, plain)
                 val header = batch.header
-                if (header.replicaId != from || header.seq != next || Paths.hashOf(path) != Paths.hash16(plain)) {
+                if (header.replicaId != from || header.seq != next || Paths.tagOf(path) != keys.fingerprint(plain)) {
                     throw SyncException(SyncError.Corrupt(path))
                 }
                 batch

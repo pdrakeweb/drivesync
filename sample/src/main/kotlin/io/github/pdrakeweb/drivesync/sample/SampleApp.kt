@@ -111,4 +111,5 @@ object NoEncryptionYet : KeyManager {
     override suspend fun unlock(passphrase: CharArray, wrapped: WrappedKey) = Unit
     override suspend fun encrypt(path: String, plain: ByteArray) = plain
     override suspend fun decrypt(path: String, cipher: ByteArray) = cipher
+    override suspend fun fingerprint(plain: ByteArray) = "%016x".format(plain.contentHashCode().toLong())
 }

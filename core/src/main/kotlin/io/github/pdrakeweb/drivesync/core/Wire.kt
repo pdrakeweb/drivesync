@@ -7,7 +7,6 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.json.Json
-import java.security.MessageDigest
 
 /** The current version of every wire format. Readers reject anything newer with a typed error. */
 public const val WIRE_FORMAT: Int = 1
@@ -88,6 +87,15 @@ public object WireCodec {
     public fun encodeReplicaFile(file: ReplicaFile): ByteArray =
         json.encodeToString(ReplicaFile.serializer(), file).encodeToByteArray()
 
+    public fun encodeMeta(meta: MetaFile): ByteArray = json.encodeToString(MetaFile.serializer(), meta).encodeToByteArray()
+
+    public fun decodeMeta(bytes: ByteArray): MetaFile = decoding(Paths.META) {
+        val text = bytes.decodeToString()
+        val format = json.decodeFromString(FormatProbe.serializer(), text).format
+        if (format != WIRE_FORMAT) throw SyncException(SyncError.UnsupportedFormat(Paths.META, format))
+        json.decodeFromString(MetaFile.serializer(), text)
+    }
+
     public fun decodeReplicaFile(path: String, plain: ByteArray): ReplicaFile = decoding(path) {
         val text = plain.decodeToString()
         val format = json.decodeFromString(FormatProbe.serializer(), text).format
@@ -113,9 +121,14 @@ public object Paths {
 
     public fun batchPrefix(replica: ReplicaId): String = "batches/${replica.value}/"
 
-    /** `batches/<replica>/<seq, 12 digits>-<first 16 hex of sha256(plaintext)>.bin` */
-    public fun batch(replica: ReplicaId, seq: Long, plaintext: ByteArray): String =
-        batchPrefix(replica) + seq.toString().padStart(SEQ_DIGITS, '0') + "-" + hash16(plaintext) + ".bin"
+    /**
+     * `batches/<replica>/<seq, 12 digits>-<tag>.bin`, where the tag is [KeyManager.fingerprint] of
+     * the plaintext: stable across retries, and meaningless without the data key.
+     */
+    public fun batch(replica: ReplicaId, seq: Long, tag: String): String {
+        require(TAG.matches(tag)) { "a batch tag is 16 lower-case hex digits" }
+        return batchPrefix(replica) + seq.toString().padStart(SEQ_DIGITS, '0') + "-" + tag + ".bin"
+    }
 
     private val REPLICA_FILE = Regex("replicas/([A-Za-z0-9_-]{1,64})\\.json")
     private val BATCH_FILE = Regex("batches/([A-Za-z0-9_-]{1,64})/(\\d{$SEQ_DIGITS})-([0-9a-f]{16})\\.bin")
@@ -129,10 +142,26 @@ public object Paths {
         return if (m.groupValues[1] == replica.value) m.groupValues[2].toLong() else null
     }
 
-    internal fun hashOf(path: String): String? = BATCH_FILE.matchEntire(path)?.groupValues?.get(3)
+    internal fun tagOf(path: String): String? = BATCH_FILE.matchEntire(path)?.groupValues?.get(3)
 
-    internal fun hash16(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).take(8).joinToString("") { "%02x".format(it) }
+    private val TAG = Regex("[0-9a-f]{16}")
+
 
     private const val SEQ_DIGITS = 12
+}
+
+/**
+ * `meta.json`, the only object stored unencrypted. It holds nothing but what is needed to turn the
+ * passphrase back into the data key: derivation parameters, a salt, and the wrapped key.
+ */
+@Serializable
+public data class MetaFile(
+    val format: Int = WIRE_FORMAT,
+    val created: Long,
+    val kdf: Kdf,
+    /** Base64 of the data key encrypted under the passphrase-derived key. */
+    val wrappedKey: String,
+) {
+    @Serializable
+    public data class Kdf(val alg: String, val params: Map<String, String>, val salt: String)
 }

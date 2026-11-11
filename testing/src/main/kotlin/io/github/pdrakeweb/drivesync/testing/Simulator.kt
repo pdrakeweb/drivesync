@@ -1,6 +1,7 @@
 package io.github.pdrakeweb.drivesync.testing
 
 import io.github.pdrakeweb.drivesync.core.Hlc
+import io.github.pdrakeweb.drivesync.core.KeyManager
 import io.github.pdrakeweb.drivesync.core.MergeClass
 import io.github.pdrakeweb.drivesync.core.MergeRegistry
 import io.github.pdrakeweb.drivesync.core.ParentRef
@@ -26,6 +27,8 @@ public class SimulationOptions(
     public val maxSteps: Int = 90,
     /** Small batches force multi-batch pushes. */
     public val maxBatchChanges: Int = 4,
+    /** The key manager for replica number `index`; all must hold the same key. Default: the test scramble. */
+    public val keys: (index: Int) -> KeyManager = { InsecureTestKeyManager() },
 ) {
     private companion object {
         const val DAY = 24L * 60 * 60 * 1000
@@ -90,13 +93,12 @@ public object Simulator {
         override fun hiddenFromListing(path: String): Boolean = lag > 0 && rnd.nextDouble() < lag
     }
 
-    private class Node(index: Int, val skew: Long, shared: InMemoryBlobStore, rnd: Random, now: () -> Long, val batch: Int) {
+    private class Node(index: Int, val skew: Long, shared: InMemoryBlobStore, rnd: Random, now: () -> Long, val batch: Int, val keys: KeyManager) {
         val id = ReplicaId("r$index")
         val clock: () -> Long = { now() + skew }
         val store = InMemoryLocalStore(id, registry, clock)
         val plan = Plan(rnd)
         val blobs = FaultyBlobStore(shared, plan)
-        val keys = InsecureTestKeyManager()
         var engine = newEngine()
 
         fun newEngine() = SyncEngine(id, store, blobs, keys, registry, SyncConfig("device $id", "sim", batch), clock)
@@ -112,7 +114,7 @@ public object Simulator {
         val shared = InMemoryBlobStore(pageSize = 7)
         val nodes = List(rnd.nextInt(2, 5)) { i ->
             val skew = if (options.maxSkewMillis == 0L) 0L else rnd.nextLong(-options.maxSkewMillis, options.maxSkewMillis + 1)
-            Node(i, skew, shared, rnd, { now }, options.maxBatchChanges)
+            Node(i, skew, shared, rnd, { now }, options.maxBatchChanges, options.keys(i))
         }
         val violations = ArrayList<String>()
         var crashes = 0
