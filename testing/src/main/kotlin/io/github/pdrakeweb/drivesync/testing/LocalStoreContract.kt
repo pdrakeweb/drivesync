@@ -34,27 +34,27 @@ public abstract class LocalStoreContract {
         val store = newStore()
         assertEquals(0, store.pendingCount())
         localWrite(store, "notes", "n1", mapOf("title" to text("a"), "body" to text("b")))
-        localWrite(store, "notes", "n2", mapOf("title" to text("c")))
-        assertEquals(3, store.pendingCount())
+        localWrite(store, "notes", "n2", mapOf("title" to text("c"), "body" to text("d")))
+        assertEquals(4, store.pendingCount())
         val drained = store.drainOutbox(100)
-        assertEquals(3, drained.size)
+        assertEquals(4, drained.size)
         assertEquals(drained.sortedBy { it.hlc }, drained)
         assertEquals(drained.size, drained.map { it.hlc }.distinct().size, "field writes get distinct timestamps")
     }
 
     public fun `a drained set is stable until acknowledged`(): Unit = runBlocking {
         val store = newStore()
-        repeat(5) { localWrite(store, "notes", "n$it", mapOf("title" to text("v$it"))) }
+        repeat(5) { localWrite(store, "notes", "n$it", mapOf("title" to text("v$it"), "body" to text("b"))) }
         val first = store.drainOutbox(3)
         assertEquals(3, first.size)
-        repeat(4) { localWrite(store, "notes", "m$it", mapOf("title" to text("later"))) }
+        repeat(4) { localWrite(store, "notes", "m$it", mapOf("title" to text("later"), "body" to text("b"))) }
         assertEquals(first, store.drainOutbox(3), "same set after more writes")
         assertEquals(first, store.drainOutbox(100), "same set even when asked for more")
 
         store.ackOutbox(first.maxOf { it.hlc.time })
-        assertEquals(6, store.pendingCount())
+        assertEquals(15, store.pendingCount())
         val second = store.drainOutbox(100)
-        assertEquals(6, second.size)
+        assertEquals(15, second.size)
         assertTrue(second.none { it in first })
         store.ackOutbox(second.maxOf { it.hlc.time })
         assertEquals(emptyList<Change>(), store.drainOutbox(100))

@@ -30,8 +30,7 @@ internal object SyncInstaller {
         "CREATE TABLE IF NOT EXISTS _ds_tombstones(tbl TEXT NOT NULL, row_id TEXT NOT NULL, time INTEGER NOT NULL, " +
             "replica TEXT NOT NULL, PRIMARY KEY(tbl, row_id))",
         "CREATE TABLE IF NOT EXISTS _ds_cursors(replica TEXT PRIMARY KEY NOT NULL, seq INTEGER NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS _ds_quarantine(change BLOB NOT NULL, reason TEXT NOT NULL, tbl TEXT NOT NULL, " +
-            "PRIMARY KEY(change, reason))",
+        "CREATE TABLE IF NOT EXISTS _ds_quarantine(change BLOB PRIMARY KEY NOT NULL, reason TEXT, tbl TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS _ds_rowstate(tbl TEXT NOT NULL, row_id TEXT NOT NULL, status TEXT NOT NULL, " +
             "PRIMARY KEY(tbl, row_id))",
     )
@@ -41,9 +40,9 @@ internal object SyncInstaller {
         db.beginTransaction()
         try {
             METADATA.forEach(db::execSQL)
-            db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES('replica', ?)", arrayOf(newReplicaId()))
+            db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES('replica', ?)", arrayOf<Any?>(newReplicaId()))
             for (key in listOf("clock", "applying", "pinned")) {
-                db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES(?, 0)", arrayOf(key))
+                db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES(?, 0)", arrayOf<Any?>(key))
             }
             // A crash cannot leave this set (the flag changes inside a transaction), but be explicit.
             db.execSQL("UPDATE _ds_meta SET value = 0 WHERE key = 'applying'")
@@ -57,7 +56,7 @@ internal object SyncInstaller {
                     // After a migration added a column, values for it may already have arrived from
                     // a device on the newer schema and been kept; write them into the new column.
                     if (previous != null) Materializer(db, schema).rematerialize(table)
-                    db.execSQL("INSERT OR REPLACE INTO _ds_meta(key, value) VALUES(?, ?)", arrayOf("columns:${table.name}", signature))
+                    db.execSQL("INSERT OR REPLACE INTO _ds_meta(key, value) VALUES(?, ?)", arrayOf<Any?>("columns:${table.name}", signature))
                 }
                 backfill(db, table, columns)
             }
@@ -77,7 +76,8 @@ internal object SyncInstaller {
             "INSERT INTO _ds_outbox(tbl, row_id, col, value, time) SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK $where; " +
                 "INSERT OR REPLACE INTO _ds_cells(tbl, row_id, col, value, time, replica) " +
                 "SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK, $REPLICA $where; "
-        val sharedClock = table.mergeClass == MergeClass.LWW_ROW
+        // Whole-row classes stamp every column of one write with the same timestamp.
+        val sharedClock = table.mergeClass != MergeClass.LWW_FIELDS
 
         for (suffix in listOf("ai", "au", "ad")) db.execSQL("DROP TRIGGER IF EXISTS \"_ds_${suffix}_$t\"")
 
@@ -133,15 +133,15 @@ internal object SyncInstaller {
         val t = table.name
         val id = "CAST(\"${table.primaryKey}\" AS TEXT)"
         val untracked = "NOT EXISTS (SELECT 1 FROM _ds_tombstones WHERE tbl = '$t' AND row_id = $id)"
-        if (table.mergeClass == MergeClass.LWW_ROW) {
-            // A whole-row table is captured row by row, all columns under one timestamp.
+        if (table.mergeClass != MergeClass.LWW_FIELDS) {
+            // Whole-row tables are captured row by row, all columns under one timestamp.
             val rows = Sql.strings(
                 db,
                 "SELECT $id FROM \"$t\" WHERE $untracked AND NOT EXISTS (SELECT 1 FROM _ds_cells WHERE tbl = '$t' AND row_id = $id)",
             )
             for (rowId in rows) {
                 db.execSQL(TICK)
-                for (column in columns) captureExisting(db, table, column, "$id = ?", arrayOf(rowId))
+                for (column in columns) captureExisting(db, table, column, "$id = ?", arrayOf<Any?>(rowId))
             }
             return
         }
@@ -150,7 +150,7 @@ internal object SyncInstaller {
                 "(SELECT 1 FROM _ds_cells WHERE tbl = '$t' AND row_id = $id AND col = '$column')"
             for (rowId in Sql.strings(db, "SELECT $id FROM \"$t\" WHERE $missing")) {
                 db.execSQL(TICK)
-                captureExisting(db, table, column, "$id = ?", arrayOf(rowId))
+                captureExisting(db, table, column, "$id = ?", arrayOf<Any?>(rowId))
             }
         }
     }
