@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":room"))
     implementation(project(":android"))
     implementation(project(":backend-local"))
+    implementation(project(":crypto"))
 
     implementation(libs.room.runtime)
     ksp(libs.room.compiler)

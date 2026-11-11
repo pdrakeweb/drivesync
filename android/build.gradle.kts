@@ -4,7 +4,10 @@ plugins {
 android {
     namespace = "io.github.pdrakeweb.drivesync.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
-    defaultConfig { minSdk = libs.versions.minSdk.get().toInt() }
+    defaultConfig {
+        minSdk = libs.versions.minSdk.get().toInt()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -18,10 +21,18 @@ dependencies {
     api(project(":core"))
     api(libs.work.runtime)
     implementation(libs.lifecycle.process)
+    // The Keystore-backed key storage implements :crypto's KeyStorage.
+    api(project(":crypto"))
+    // QR rendering for the join code. Pure Java, no Android or network code.
+    implementation(libs.zxing.core)
 
     testImplementation(project(":testing"))
     testImplementation(libs.work.testing)
     testImplementation(libs.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

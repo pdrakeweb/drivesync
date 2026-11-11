@@ -22,7 +22,7 @@ emulator -avd drivesync_a -port 5556 -no-window -no-audio -no-snapshot
 emulator -avd drivesync_b -port 5558 -no-window -no-audio -no-snapshot
 ```
 
-## 01 · Two emulators sync through a local folder
+## 01 · Two emulators sync encrypted notes through a local folder
 
 `tests/journey-two-emulators.sh <serial-a> <serial-b>` — exit code 0 only if every check passes.
 
@@ -32,21 +32,25 @@ every file has exactly one writer, merging two copies of the folder is a plain c
 
 | Step | Expected |
 |---|---|
-| Fresh install | "No notes yet"; nothing invented |
-| Add a note on A | "2 changes waiting to upload" (title and body), then "Nothing waiting to upload" after sync |
-| Carry the folder to B, sync | B shows the note |
+| Fresh install | "No notes yet"; "Sync is off on this device" |
+| Add a note on A before any passphrase | "2 changes will upload once sync is on" |
+| Set a passphrase on A | "End-to-end encrypted", "Nothing waiting to upload" |
+| Carry the folder to B, enter a wrong passphrase | Refused with a reason; no notes shown |
+| Enter the right passphrase on B | B shows the note |
 | A and B each add a note, B renames A's note, while apart | Both show all three, with the rename |
 | A deletes a note while B renames the same note | The note is gone on both (deletes win) |
-| A adds a note and the app is force-stopped before any sync | After restart and exchange, B has it |
-| Stored file names | Only replica ids, sequence numbers and hashes |
+| A adds a note and the app is force-stopped before any sync | After restart no passphrase is asked for again; after exchange B has it |
+| Stored files | Names are ids, numbers and tags only; no note text, table or column name in any file; `meta.json` has only the wrapped key and derivation parameters |
 | Crash log | Empty on both |
 
-Recorded run: `RESULTS-01-two-emulators.txt` (11 Nov 2026, all PASS), final screen of device B in
+Recorded run: `RESULTS-01-two-emulators.txt` (11 Nov 2026, 22 checks, all PASS), final screen of device B in
 `01-device-b-final.png`.
 
 ## Not yet covered on devices
 
-- Sync through Google Drive (milestone S3; needs an OAuth client and a test account).
+- **BLOCKED:** sync through Google Drive. Needs an Android OAuth client for package `io.github.pdrakeweb.drivesync.sample` (with the debug signing certificate SHA-1) in a Google Cloud project with the Drive API enabled, and a test Google account. The backend itself can be checked sooner with any access token carrying the `drive.appdata` scope: `./gradlew :backend-drive:test -PdriveToken=<token>`.
+- Scanning a join QR code (the sample draws one; no scanner is built).
+- Android 8.0 and 8.1 (API 26, 27): they ship an old Bouncy Castle under the same package name as the one used for Argon2id; this must be run on such an image before those versions are claimed.
 - Background sync firing on its own schedule (WorkManager is covered by Robolectric tests in
   `:android`; the journey triggers cycles explicitly so that it is deterministic).
 - A tablet-sized screen.

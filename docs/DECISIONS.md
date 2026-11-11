@@ -18,3 +18,5 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-011 | Additions to the app-facing surface beyond DESIGN §9: `held` and `orphaned` row lists, `ReplicaInfo.batchesToFetch`, errors `ReplicaStateBehind` and `Unexpected`, fix `ResetThisDevice`. Names are open. | Proposed (S1 review) |
 | D-012 | `APPEND_ONLY` inserts are whole-row (one timestamp); on an id collision the earliest insert wins whole. | Proposed (S1 review) |
 | D-013 | Apps must keep the synced database out of Android automatic backup; the sample sets `allowBackup="false"`. A "reset this device's sync identity" operation is still to be designed. | Proposed (S2) |
+| D-014 | Add `KeyManager.fingerprint(plain)` (keyed, 16 hex digits) to the interface in ARCHITECTURE §2 and use it in batch file names, replacing the unkeyed plaintext hash from ARCHITECTURE §3. | Proposed (S3, required by C-2) |
+| D-015 | Crypto choices: XChaCha20-Poly1305 through Tink for objects; Argon2id through Bouncy Castle for the passphrase (64 MiB, 3 passes, 1 lane); HMAC-SHA-256 fingerprints; a join code that is the data key itself plus a checksum. | Proposed (S3) |

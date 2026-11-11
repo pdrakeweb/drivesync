@@ -6,14 +6,17 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -23,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,10 +34,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import io.github.pdrakeweb.drivesync.android.JoinQr
 import io.github.pdrakeweb.drivesync.core.Fix
+import io.github.pdrakeweb.drivesync.core.SyncSetup
 import io.github.pdrakeweb.drivesync.core.SyncState
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -56,12 +65,13 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Debug builds only: lets the two-emulator journey script drive the app through intent extras
-     * (`add`, `rename` + `to`, `delete`, `sync`) instead of screen coordinates.
+     * (`passphrase`, `add`, `rename` + `to`, `delete`, `sync`) instead of screen coordinates.
      */
     private fun handleTestCommand(intent: Intent) {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val notes = app.database.notes()
         lifecycleScope.launch {
+            intent.getStringExtra("passphrase")?.let { lastSetupResult.value = app.turnOn(it) }
             intent.getStringExtra("add")?.let { notes.insert(Note(UUID.randomUUID().toString(), it, null)) }
             intent.getStringExtra("rename")?.let { from ->
                 notes.byTitle(from)?.let { notes.rename(it.id, intent.getStringExtra("to") ?: from) }
@@ -73,11 +83,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** The outcome of the last attempt to turn sync on, shown under the passphrase form. */
+private val lastSetupResult = mutableStateOf<SyncSetup.Result?>(null)
+
 private fun describe(state: SyncState): String = when (state) {
     is SyncState.Idle -> if (state.lastSync == null) "Not synced yet" else "Synced"
     is SyncState.Syncing -> "Syncing"
     SyncState.Offline -> "Offline"
-    SyncState.NeedsKey -> "Needs passphrase"
+    SyncState.NeedsKey -> "Sync is off on this device"
     is SyncState.Error -> "Sync problem: ${state.kind}" + when (state.fix) {
         Fix.RetryLater -> " (will retry)"
         Fix.UpdateApp -> " (update the app)"
@@ -94,25 +107,30 @@ private fun NotesScreen(app: SampleApp) {
     val notes by app.database.notes().observe().collectAsStateWithLifecycle(emptyList())
     val state by app.engine.state.collectAsStateWithLifecycle()
     val pending by app.engine.pending.collectAsStateWithLifecycle()
+    val hasKey by app.hasKey.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Note?>(null) }
+    var showJoinCode by remember { mutableStateOf(false) }
     val dao = app.database.notes()
+    LaunchedEffect(Unit) { app.refreshKeyState() }
 
     Scaffold { insets ->
         Column(Modifier.padding(insets).padding(horizontal = 16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("drivesync sample", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "Milestone S2 build: the sync folder is NOT encrypted yet.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text(describe(state))
-                    Text(if (pending == 0) "Nothing waiting to upload" else "$pending changes waiting to upload", style = MaterialTheme.typography.bodySmall)
+            if (hasKey) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text(describe(state))
+                        Text(if (pending == 0) "Nothing waiting to upload" else "$pending changes waiting to upload", style = MaterialTheme.typography.bodySmall)
+                        Text("End-to-end encrypted", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(onClick = { scope.launch { app.engine.sync() } }) { Text("Sync now") }
                 }
-                Button(onClick = { scope.launch { app.engine.sync() } }) { Text("Sync now") }
+                TextButton(onClick = { showJoinCode = true }) { Text("Add another device") }
+            } else {
+                TurnOnSync(app)
+                if (pending > 0) Text("$pending changes will upload once sync is on", style = MaterialTheme.typography.bodySmall)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(draft, { draft = it }, Modifier.weight(1f), label = { Text("New note") }, singleLine = true)
@@ -159,5 +177,65 @@ private fun NotesScreen(app: SampleApp) {
             },
             dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } },
         )
+    }
+
+    if (showJoinCode) {
+        // The code is the key itself: it is drawn only while this dialog is open and never stored.
+        val code = remember { app.keys.exportJoinCode() }
+        val qr = remember(code) { JoinQr.bitmap(code, 720).asImageBitmap() }
+        AlertDialog(
+            onDismissRequest = { showJoinCode = false },
+            title = { Text("Add another device") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("On the other device, enter the same passphrase, or scan this code. Anyone who sees the code can read your synced notes.")
+                    Image(qr, contentDescription = "Join code as a QR code", modifier = Modifier.size(240.dp))
+                }
+            },
+            confirmButton = { TextButton(onClick = { showJoinCode = false }) { Text("Done") } },
+        )
+    }
+}
+
+@Composable
+private fun TurnOnSync(app: SampleApp) {
+    val scope = rememberCoroutineScope()
+    var passphrase by remember { mutableStateOf("") }
+    var working by remember { mutableStateOf(false) }
+    val result by lastSetupResult
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Sync is off on this device")
+        Text(
+            "Choose a passphrase to turn it on, or enter the one you chose on another device. " +
+                "It encrypts your notes; if you lose it, the synced copy cannot be read.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                passphrase, { passphrase = it }, Modifier.weight(1f),
+                label = { Text("Passphrase") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            Button(
+                enabled = passphrase.length >= 8 && !working,
+                onClick = {
+                    val entered = passphrase
+                    passphrase = ""
+                    working = true
+                    scope.launch {
+                        lastSetupResult.value = app.turnOn(entered)
+                        working = false
+                    }
+                },
+            ) { Text(if (working) "Working" else "Turn on") }
+        }
+        when (result) {
+            SyncSetup.Result.WrongPassphrase ->
+                Text("That passphrase does not match the one used on your other device.", color = MaterialTheme.colorScheme.error)
+            SyncSetup.Result.NotSetUp -> Text("Nothing to join yet.", color = MaterialTheme.colorScheme.error)
+            else -> if (passphrase.isNotEmpty() && passphrase.length < 8) Text("Use at least 8 characters.", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

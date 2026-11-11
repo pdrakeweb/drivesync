@@ -14,8 +14,16 @@ java {
 }
 dependencies {
     api(project(":core"))
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.junit.jupiter)
+    api(libs.okhttp)
+    implementation(libs.serialization.json)
+
+    testImplementation(project(":testing"))
+    testImplementation(libs.okhttp.mockwebserver)
     testRuntimeOnly(libs.junit.launcher)
 }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    // Opt-in run against a real Google account: -PdriveToken=<OAuth access token with drive.appdata>.
+    systemProperty("drivesync.driveToken", providers.gradleProperty("driveToken").getOrElse(""))
+    testLogging { showStandardStreams = true }
+}
