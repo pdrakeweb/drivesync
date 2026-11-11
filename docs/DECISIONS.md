@@ -10,5 +10,5 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-003 | Google Drive app-data folder is the first backend; local folder for tests; others later. | Pete (picked), via NextRep D-018 |
 | D-004 | Single writer per cloud file; never depend on storage preconditions (ETag/If-Match). | Proposed (from the Property Manager review) |
 | D-005 | End-to-end encryption with a passphrase-wrapped data key; lost passphrase = cloud copy unrecoverable. | Proposed (NextRep Q-3) |
-| D-006 | Working name `cloudsync`; final name and Maven namespace before 0.1.0. | Proposed |
+| D-006 | Repository and library name `drivesync`; repository public from the start; Maven namespace decided before 0.1.0. | Pete (picked) "drivesync + llm-tiers", "Public from the start" |
 | D-007 | First consumer: NextRep (`pdrakeweb/nextrep`). | Pete (words) |

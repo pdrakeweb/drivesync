@@ -1,4 +1,4 @@
-# CLAUDE.md — cloudsync
+# CLAUDE.md — drivesync
 
 A standalone Kotlin library: local-first sync for Android apps through user-owned storage (Google
 Drive app-data folder first), end-to-end encrypted, no server. Apache 2.0. First consumer:

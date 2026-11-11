@@ -1,4 +1,4 @@
-# Handoff — implement cloudsync
+# Handoff — implement drivesync
 
 For the Claude Code session that builds this library. You have no memory of the planning
 conversation; this repo's docs are the spec.
@@ -12,6 +12,6 @@ conversation; this repo's docs are the spec.
    per milestone; don't merge.
 4. Every milestone ends with its "proven by" column demonstrated, not asserted.
 5. The three invariants in `CLAUDE.md` are pasted verbatim into any review or fix prompt.
-6. Stop and ask Pete before choosing the library's final name or Maven namespace.
+6. Stop and ask Pete before choosing the Maven namespace.
 7. At the end of each milestone, summarise: what was built, what was proven and how, what is
    blocked, and the PR link.

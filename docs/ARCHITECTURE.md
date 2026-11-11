@@ -1,4 +1,4 @@
-# cloudsync — architecture
+# drivesync — architecture
 
 How the library is built. Behaviour is defined in `DESIGN.md`; when the two disagree, fix one of
 them in the same change.

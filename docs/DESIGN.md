@@ -1,9 +1,9 @@
-# cloudsync — design
+# drivesync — design
 
 Local-first, multi-device sync for Android apps through storage the user owns (Google Drive
 first). No server to run, end-to-end encrypted, and deterministic when two devices edit offline.
 
-Working name; rename before first publish (see `DECISIONS.md`).
+Name chosen by Pete (D-006). The Maven namespace is decided before 0.1.0.
 
 ## 1. The problem
 
@@ -15,7 +15,7 @@ usually has three choices:
 3. write its own merge logic on top of cloud storage (hard to get right; most attempts silently
    lose data in the cases nobody tested).
 
-`cloudsync` is option 3 done once, carefully, so apps don't have to. It is built for one person's
+`drivesync` is option 3 done once, carefully, so apps don't have to. It is built for one person's
 data across that person's devices, not for collaboration between people.
 
 ## 2. Goals and non-goals
@@ -46,7 +46,7 @@ the user's Drive (that's a different product — see §3, Property Manager).
 | **Automerge** (Android bindings) | Mature document CRDT | Merges JSON-like documents, not rows; heavy native dependency | — |
 | **cr-sqlite** | SQLite extension with CRDT tables | No commits in about 1.5–2 years | — |
 | **PowerSync, ElectricSQL, Firebase** | Mature sync | Need a server the developer operates | — |
-| **Property Manager** (Pete's app, TypeScript) | Drive as the only persistence layer with no backend; an offline upload queue; a sync-state per record (`local_only / pending_upload / synced / conflict`); a "keep both" conflict copy (`_v2_`) when edits overlap; a dev-mode local adapter standing in for Drive | Files are human-readable Markdown in the user's own folders (a different goal); conflict detection compares wall-clock-free field values but treats "both non-null and different" as conflict, so concurrent edits to the same field always become copies; errors are swallowed and records stay pending forever without telling anyone; the `If-Match` header is sent on a file *create*, where it can't detect anything | The per-record sync state shown to the user; a local-folder backend for development; the honest lesson that **conditional writes on shared files are fragile** — so `cloudsync` never shares a writable file between devices |
+| **Property Manager** (Pete's app, TypeScript) | Drive as the only persistence layer with no backend; an offline upload queue; a sync-state per record (`local_only / pending_upload / synced / conflict`); a "keep both" conflict copy (`_v2_`) when edits overlap; a dev-mode local adapter standing in for Drive | Files are human-readable Markdown in the user's own folders (a different goal); conflict detection compares wall-clock-free field values but treats "both non-null and different" as conflict, so concurrent edits to the same field always become copies; errors are swallowed and records stay pending forever without telling anyone; the `If-Match` header is sent on a file *create*, where it can't detect anything | The per-record sync state shown to the user; a local-folder backend for development; the honest lesson that **conditional writes on shared files are fragile** — so `drivesync` never shares a writable file between devices |
 
 Sources: <https://github.com/CharlieTap/synk> · <https://github.com/hamadawan/google-drive-sync> ·
 <https://github.com/automerge/automerge-java> · <https://repopilot.app/r/vlcn-io/cr-sqlite> ·
@@ -88,7 +88,7 @@ Sources: <https://github.com/CharlieTap/synk> · <https://github.com/hamadawan/g
 ## 6. Storage layout
 
 ```
-cloudsync/v1/
+drivesync/v1/
   meta.json                              format version, created, key-derivation params, wrapped data key
   replicas/<replicaId>.json              written only by that replica: label, platform, last seen, last batch, cursors
   batches/<replicaId>/<seq>-<hash>.bin   immutable encrypted batches

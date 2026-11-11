@@ -1,9 +1,9 @@
-# cloudsync
+# drivesync
 
 Local-first sync for Android apps through storage the user owns. Every device works offline;
 changes merge deterministically; the cloud copy is end-to-end encrypted; there is no server.
 
-**Status:** design. No code yet. Working name.
+**Status:** design. No code yet.
 
 | Doc | What it answers |
 |---|---|
