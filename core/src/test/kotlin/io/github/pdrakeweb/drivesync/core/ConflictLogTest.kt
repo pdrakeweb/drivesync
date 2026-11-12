@@ -121,4 +121,19 @@ class ConflictLogTest {
         for (d in devices) assertEquals(emptyList<String>(), d.lost(), d.id.value)
         assertEquals(1, devices.map { it.store.mergedState() }.distinct().size)
     }
+
+    @Test
+    fun `a redelivered change never adds a second log entry`() = runBlocking {
+        val store = InMemoryLocalStore(ReplicaId("observer"), registry) { now }
+        val base = Change("notes", "n1", "title", Value.Text("base"), Hlc.of(100, 0, ReplicaId("a")))
+        val fromA = Change("notes", "n1", "title", Value.Text("from a"), Hlc.of(200, 0, ReplicaId("a")), prev = base.hlc)
+        val fromB = Change("notes", "n1", "title", Value.Text("from b"), Hlc.of(300, 0, ReplicaId("b")), prev = base.hlc)
+
+        assertEquals(1, store.apply(listOf(base, fromA, fromB), registry).conflicts.size)
+        for (again in listOf(listOf(fromA), listOf(fromB, fromA), listOf(base, fromA, fromB), listOf(fromA, fromA))) {
+            assertEquals(emptyList<Conflict>(), store.apply(again, registry).conflicts, "redelivering $again")
+        }
+        assertEquals(1, store.conflicts().size)
+        assertEquals(Value.Text("from a"), store.conflicts().single().lost.value)
+    }
 }
