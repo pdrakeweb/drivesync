@@ -82,7 +82,7 @@ the "Add another device" dialog, wipes the app and joins again by typing the cod
 passphrase and shows that only the new one joins; then replaces the database with an older copy
 of itself (`run-as`, debug build) and uses the "Set this device up again" button.
 
-Recorded run: `RESULTS-03-setup-features.txt` (12 Nov 2026, 24 checks, all PASS).
+Recorded run: `RESULTS-03-setup-features.txt` (12 Nov 2026, 22 checks, all PASS).
 
 ## Not yet covered on devices
 
