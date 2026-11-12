@@ -3,6 +3,13 @@ package io.github.pdrakeweb.drivesync.sample
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.util.Log
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.key
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
+import io.github.pdrakeweb.drivesync.core.SyncException
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -54,8 +61,45 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Android 16 draws every app edge to edge; Scaffold below keeps content clear of the bars.
         enableEdgeToEdge()
-        setContent { MaterialTheme { NotesScreen(app) } }
+        setContent {
+            MaterialTheme {
+                // Switching storage replaces the engine; rebuild the screen around the new one.
+                val sync by app.sync.collectAsStateWithLifecycle()
+                key(sync) { NotesScreen(app, onUseDrive = { connectDrive() }) }
+            }
+        }
         handleTestCommand(intent)
+    }
+
+    /** Receives the answer from Google's consent screen. */
+    private val consent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val granted = try {
+            Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(result.data).accessToken != null
+        } catch (e: ApiException) {
+            false
+        }
+        if (granted) app.useBackend(Backend.GoogleDrive) else driveMessage.value = "Google Drive was not connected."
+    }
+
+    /**
+     * Asks for permission to use the app's own folder in Google Drive. The first time, Google
+     * shows a consent screen; after that the answer is remembered and nothing is shown.
+     */
+    private fun connectDrive() {
+        lifecycleScope.launch {
+            driveMessage.value = null
+            try {
+                val result = DriveAuth.authorize(this@MainActivity)
+                val pending = result.pendingIntent
+                if (result.hasResolution() && pending != null) {
+                    consent.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                } else {
+                    app.useBackend(Backend.GoogleDrive)
+                }
+            } catch (e: ApiException) {
+                driveMessage.value = "Could not reach Google (${e.statusCode}). Check the connection and that a Google account is signed in on this device."
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -71,7 +115,26 @@ class MainActivity : ComponentActivity() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val notes = app.database.notes()
         lifecycleScope.launch {
-            intent.getStringExtra("passphrase")?.let { lastSetupResult.value = app.turnOn(it) }
+            // `backend drive` (with an optional `root` so each test run starts from an empty folder).
+            when (intent.getStringExtra("backend")) {
+                "drive" -> {
+                    intent.getStringExtra("root")?.let { app.useBackend(Backend.LocalFolder, driveRoot = it) }
+                    connectDrive()
+                }
+                "local" -> app.useBackend(Backend.LocalFolder)
+            }
+            intent.getStringExtra("passphrase")?.let { turnOn(app, it) }
+            if (intent.getBooleanExtra("dump", false)) {
+                // Names of everything in storage, for the journey's file-name check.
+                val names = ArrayList<String>()
+                var page: String? = null
+                do {
+                    val listed = app.sync.value.blobs.list("", page)
+                    names += listed.items.map { it.path }
+                    page = listed.nextPageToken
+                } while (page != null)
+                Log.i("drivesync-sample", "STORED ${names.size} " + names.sorted().joinToString(" "))
+            }
             intent.getStringExtra("add")?.let { notes.insert(Note(UUID.randomUUID().toString(), it, null)) }
             intent.getStringExtra("rename")?.let { from ->
                 notes.byTitle(from)?.let { notes.rename(it.id, intent.getStringExtra("to") ?: from) }
@@ -85,6 +148,19 @@ class MainActivity : ComponentActivity() {
 
 /** The outcome of the last attempt to turn sync on, shown under the passphrase form. */
 private val lastSetupResult = mutableStateOf<SyncSetup.Result?>(null)
+private val setupError = mutableStateOf<String?>(null)
+private val driveMessage = mutableStateOf<String?>(null)
+
+/** Turns sync on and records the outcome for the screen; storage failures are shown, never thrown. */
+private suspend fun turnOn(app: SampleApp, passphrase: String) {
+    setupError.value = null
+    try {
+        lastSetupResult.value = app.turnOn(passphrase)
+    } catch (e: SyncException) {
+        lastSetupResult.value = null
+        setupError.value = "Could not reach storage: ${e.error}"
+    }
+}
 
 private fun describe(state: SyncState): String = when (state) {
     is SyncState.Idle -> if (state.lastSync == null) "Not synced yet" else "Synced"
@@ -103,7 +179,8 @@ private fun describe(state: SyncState): String = when (state) {
 }
 
 @Composable
-private fun NotesScreen(app: SampleApp) {
+private fun NotesScreen(app: SampleApp, onUseDrive: () -> Unit) {
+    val backend = app.sync.collectAsStateWithLifecycle().value.backend
     val notes by app.database.notes().observe().collectAsStateWithLifecycle(emptyList())
     val state by app.engine.state.collectAsStateWithLifecycle()
     val pending by app.engine.pending.collectAsStateWithLifecycle()
@@ -129,6 +206,14 @@ private fun NotesScreen(app: SampleApp) {
                 }
                 TextButton(onClick = { showJoinCode = true }) { Text("Add another device") }
             } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (backend == Backend.GoogleDrive) "Storage: Google Drive" else "Storage: a folder on this device",
+                        Modifier.weight(1f),
+                    )
+                    if (backend == Backend.LocalFolder) TextButton(onClick = onUseDrive) { Text("Use Google Drive") }
+                }
+                driveMessage.value?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 TurnOnSync(app)
                 if (pending > 0) Text("$pending changes will upload once sync is on", style = MaterialTheme.typography.bodySmall)
             }
@@ -225,7 +310,7 @@ private fun TurnOnSync(app: SampleApp) {
                     passphrase = ""
                     working = true
                     scope.launch {
-                        lastSetupResult.value = app.turnOn(entered)
+                        turnOn(app, entered)
                         working = false
                     }
                 },
@@ -235,6 +320,7 @@ private fun TurnOnSync(app: SampleApp) {
             SyncSetup.Result.WrongPassphrase ->
                 Text("That passphrase does not match the one used on your other device.", color = MaterialTheme.colorScheme.error)
             SyncSetup.Result.NotSetUp -> Text("Nothing to join yet.", color = MaterialTheme.colorScheme.error)
+            null -> setupError.value?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             else -> if (passphrase.isNotEmpty() && passphrase.length < 8) Text("Use at least 8 characters.", style = MaterialTheme.typography.bodySmall)
         }
     }

@@ -25,6 +25,9 @@ dependencies {
     implementation(project(":android"))
     implementation(project(":backend-local"))
     implementation(project(":crypto"))
+    implementation(project(":backend-drive"))
+    // Google Identity Services: asks the person to let this app use its own hidden Drive folder.
+    implementation(libs.play.services.auth)
 
     implementation(libs.room.runtime)
     ksp(libs.room.compiler)
