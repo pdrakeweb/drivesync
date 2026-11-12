@@ -3,6 +3,8 @@ package io.github.pdrakeweb.drivesync.sample
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import androidx.compose.ui.text.input.VisualTransformation
+import io.github.pdrakeweb.drivesync.android.PassphraseVault
 import android.view.autofill.AutofillManager
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.autofill.ContentType
@@ -326,6 +328,7 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
     var passphrase by remember { mutableStateOf("") }
     val working by workingOnSetup
     val result by lastSetupResult
+    var revealed by remember { mutableStateOf(false) }
     // Has sync been set up in this storage already? That decides what the field is to the
     // password manager: a place to create a passphrase (it offers to suggest and then save one),
     // or a place to enter the existing one (it offers the saved one). Unknown counts as existing.
@@ -356,13 +359,18 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
-                passphrase, { passphrase = it },
+                passphrase,
+                {
+                    passphrase = it
+                    // Whatever the person types after emptying the field is theirs: hide it again.
+                    if (it.isEmpty()) revealed = false
+                },
                 Modifier.weight(1f).semantics {
                     contentType = if (firstDevice) ContentType.NewPassword else ContentType.Password
                 },
                 label = { Text("Passphrase") },
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             Button(
@@ -371,6 +379,15 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
                 // it when the submission is committed.
                 onClick = { submit(passphrase) },
             ) { Text(if (working) "Working" else "Turn on") }
+        }
+        // The system password manager saves and fills, but did not offer to generate. So while the
+        // field is empty on a first device, offer one made here. It is shown in the clear because
+        // the person has never seen it; saving it is then the password manager's usual offer.
+        if (firstDevice && passphrase.isEmpty()) {
+            TextButton(enabled = !working, onClick = {
+                passphrase = PassphraseVault.suggest()
+                revealed = true
+            }) { Text("Suggest one") }
         }
         when (result) {
             SyncSetup.Result.WrongPassphrase ->

@@ -62,6 +62,25 @@ if (setup.create(passphrase.toCharArray()) == SyncSetup.Result.Ready) {
 So native handling covers saving and filling, but not generating, at least with this password
 manager on this version. Other password managers and older Android versions were not tried.
 
+## Generating one: a single button, only when it helps
+
+Because the system did not offer to generate, the sample shows a **Suggest one** button, under
+two conditions:
+
+- only on the first device (`SyncSetup.status() == NotSetUp`). On a later device the person must
+  enter the passphrase that already exists; a freshly generated one would be refused;
+- only while the field is empty, so it never competes with what the person is typing.
+
+It fills the field with `PassphraseVault.suggest()` and shows it in the clear, since the person
+has never seen it. If they empty the field and type their own, it is hidden again. Saving the
+generated passphrase is then the password manager's ordinary offer on submit: no second button.
+
+```kotlin
+if (firstDevice && passphrase.isEmpty()) {
+    TextButton(onClick = { passphrase = PassphraseVault.suggest(); revealed = true }) { Text("Suggest one") }
+}
+```
+
 ## If the app needs more: `PassphraseVault`
 
 `PassphraseVault` (in the `:android` module) is an explicit alternative built on Credential
@@ -72,8 +91,8 @@ Manager, for an app that wants its own controls rather than relying on what the 
 - `save(activity, passphrase)` and `fetch(activity)` show the system's Credential Manager
   sheets and return what the person chose.
 
-The sample does not use it. Prefer the plain form; reach for this when the form cannot have a
-username field, or when the person must be offered a generated passphrase.
+The sample uses only `suggest()`. Prefer the plain form for saving and filling; reach for
+`save` and `fetch` when the form cannot have a username field.
 
 ## What the person is trading
 
