@@ -90,6 +90,13 @@ public class PassphraseKeyManager(
         return WrappedKey(ARGON2ID, costParams(cost), salt, wrapped)
     }
 
+    override suspend fun rewrap(passphrase: CharArray): WrappedKey {
+        val dataKey = storage.load() ?: throw SyncException(SyncError.KeyMissing)
+        val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
+        val wrapped = XChaCha20Poly1305(derive(passphrase, salt, cost)).encrypt(dataKey, WRAP_CONTEXT)
+        return WrappedKey(ARGON2ID, costParams(cost), salt, wrapped)
+    }
+
     override suspend fun unlock(passphrase: CharArray, wrapped: WrappedKey) {
         val dataKey = try {
             if (wrapped.kdfAlgorithm != ARGON2ID) throw SyncException(SyncError.UnsupportedFormat(Paths.META, 0))

@@ -74,7 +74,7 @@ internal object SyncInstaller {
         }
     }
 
-    private fun newReplicaId(): String = UUID.randomUUID().toString()
+    fun newReplicaId(): String = UUID.randomUUID().toString()
 
     private fun addColumn(db: SupportSQLiteDatabase, table: String, column: String, type: String) {
         val present = Sql.query(db, "PRAGMA table_info($table)") { c ->

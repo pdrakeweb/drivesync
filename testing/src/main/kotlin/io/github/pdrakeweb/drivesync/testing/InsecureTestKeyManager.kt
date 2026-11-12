@@ -23,6 +23,11 @@ public class InsecureTestKeyManager(public var keyState: KeyState = KeyState.Rea
         keyState = KeyState.Ready
     }
 
+    override suspend fun rewrap(passphrase: CharArray): WrappedKey {
+        requireReady()
+        return WrappedKey("test", emptyMap(), ByteArray(0), ByteArray(0))
+    }
+
     override suspend fun encrypt(path: String, plain: ByteArray): ByteArray {
         requireReady()
         val out = ByteArray(HEADER + plain.size)

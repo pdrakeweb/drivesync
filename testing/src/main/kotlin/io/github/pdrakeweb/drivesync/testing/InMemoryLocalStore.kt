@@ -30,11 +30,14 @@ public data class MergedState(
  * database file, so it survives a simulated process death while the sync engine is recreated.
  */
 public class InMemoryLocalStore(
-    public val replicaId: ReplicaId,
+    replicaId: ReplicaId,
     private val registry: MergeRegistry,
-    wallClock: () -> Long,
+    private val wallClock: () -> Long,
 ) : LocalStore {
-    private val clock = HlcClock(replicaId, wallClock)
+    /** This store's identity. Changes only through [resetIdentity]. */
+    public var replicaId: ReplicaId = replicaId
+        private set
+    private var clock = HlcClock(replicaId, wallClock)
     private val cells = HashMap<RowRef, MutableMap<String, Cell>>()
     private val tombstones = HashMap<RowRef, Hlc>()
     private val outbox = ArrayList<Change>()
@@ -104,6 +107,44 @@ public class InMemoryLocalStore(
         MergeEngine.apply(state, listOf(change), localRegistry)
         outbox += change
         return change.hlc
+    }
+
+    /**
+     * Gives this store a new identity, for a database that was restored from a backup or copied
+     * to another device ([io.github.pdrakeweb.drivesync.core.Fix.ResetThisDevice]).
+     *
+     * Changes not yet uploaded become the new identity's, at their original times; everything
+     * already uploaded keeps its author. Cursors are kept: the old identity's entry now means
+     * "applied this far from that replica", which is true of this store's own past. The caller
+     * must then build a new sync engine with the new id.
+     */
+    @Synchronized
+    public fun resetIdentity(newId: ReplicaId) {
+        require(newId != replicaId && newId !in cursors) { "the new identity must never have been used" }
+        val pending = outbox.mapTo(HashSet()) { it.hlc }
+        fun moved(hlc: Hlc) = if (hlc in pending) Hlc(hlc.time, newId) else hlc
+        outbox.replaceAll { it.copy(hlc = moved(it.hlc), prev = it.prev?.let(::moved)) }
+        for (columns in cells.values) columns.replaceAll { _, cell -> cell.copy(hlc = moved(cell.hlc), prev = cell.prev?.let(::moved)) }
+        tombstones.replaceAll { _, hlc -> moved(hlc) }
+        pinned = 0
+        clock = HlcClock(newId, wallClock, clock.last)
+        replicaId = newId
+    }
+
+    /** An independent copy of this store, identity included: what a backup or a cloned phone holds. */
+    @Synchronized
+    public fun copy(): InMemoryLocalStore {
+        val other = InMemoryLocalStore(replicaId, registry, wallClock)
+        other.clock = HlcClock(replicaId, wallClock, clock.last)
+        for ((row, columns) in cells) other.cells[row] = HashMap(columns)
+        other.tombstones.putAll(tombstones)
+        other.outbox.addAll(outbox)
+        other.pinned = pinned
+        other.cursors.putAll(cursors)
+        other.quarantine.putAll(quarantine)
+        other.schemaSeen = schemaSeen
+        other.conflictLog.putAll(conflictLog)
+        return other
     }
 
     /** Rows the app would see: not deleted, and not held back or orphaned. */

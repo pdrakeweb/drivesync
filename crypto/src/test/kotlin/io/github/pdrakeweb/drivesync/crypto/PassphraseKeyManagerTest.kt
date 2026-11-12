@@ -13,6 +13,7 @@ import io.github.pdrakeweb.drivesync.core.SyncSetup
 import io.github.pdrakeweb.drivesync.core.SyncState
 import io.github.pdrakeweb.drivesync.core.TableSpec
 import io.github.pdrakeweb.drivesync.core.Value
+import io.github.pdrakeweb.drivesync.core.WireCodec
 import io.github.pdrakeweb.drivesync.core.WrappedKey
 import io.github.pdrakeweb.drivesync.testing.InMemoryBlobStore
 import io.github.pdrakeweb.drivesync.testing.InMemoryLocalStore
@@ -162,6 +163,76 @@ class EncryptedSyncTest {
     private fun contains(haystack: ByteArray, needle: String): Boolean {
         val n = needle.encodeToByteArray()
         return (0..haystack.size - n.size).any { i -> n.indices.all { haystack[i + it] == n[it] } }
+    }
+
+    @Test
+    fun `a device holding the key sets a new passphrase, and only the new one opens storage`() = runBlocking {
+        val phone = Device("phone"); val tablet = Device("tablet")
+        phone.setup.create("forgotten one".toCharArray())
+        tablet.setup.join("forgotten one".toCharArray())
+        phone.write("r1", "before the change"); phone.sync()
+        val metaBefore = cloud.raw(Paths.META)!!
+
+        phone.setup.changePassphrase("the new passphrase".toCharArray())
+
+        // Devices that already hold the key carry on without being asked for anything.
+        tablet.write("r2", "after the change")
+        for (d in listOf(tablet, phone, tablet)) assertTrue(d.sync() is SyncState.Idle)
+        assertEquals(phone.store.mergedState(), tablet.store.mergedState())
+
+        val laptop = Device("laptop")
+        assertEquals(SyncSetup.Result.WrongPassphrase, laptop.setup.join("forgotten one".toCharArray()))
+        assertEquals(SyncSetup.Result.Ready, laptop.setup.join("the new passphrase".toCharArray()))
+        assertTrue(laptop.sync() is SyncState.Idle)
+        assertEquals(phone.store.mergedState(), laptop.store.mergedState())
+
+        // C-2: meta.json still holds only a wrapped key and parameters, under a fresh salt.
+        val before = WireCodec.decodeMeta(metaBefore); val after = WireCodec.decodeMeta(cloud.raw(Paths.META)!!)
+        assertEquals(before.created, after.created)
+        assertTrue(before.kdf.salt != after.kdf.salt && before.wrappedKey != after.wrappedKey)
+        for (word in listOf("the new passphrase", "forgotten one")) assertFalse(contains(cloud.raw(Paths.META)!!, word))
+    }
+
+    @Test
+    fun `a device without the key cannot set a passphrase, and storage is untouched`() = runBlocking {
+        val phone = Device("phone"); val stranger = Device("stranger")
+        phone.setup.create("pass phrase".toCharArray())
+        val metaBefore = cloud.raw(Paths.META)!!.toList()
+        val thrown = assertThrows(SyncException::class.java) { runBlocking { stranger.setup.changePassphrase("mine now".toCharArray()) } }
+        assertEquals(SyncError.KeyMissing, thrown.error)
+        assertEquals(metaBefore, cloud.raw(Paths.META)!!.toList())
+        assertEquals(SyncSetup.Result.Ready, Device("tablet").setup.join("pass phrase".toCharArray()))
+    }
+
+    @Test
+    fun `if storage lost meta json, a device holding the key can put it back`() = runBlocking {
+        val phone = Device("phone")
+        phone.setup.create("pass phrase".toCharArray())
+        phone.write("r1", "kept"); phone.sync()
+        cloud.delete(Paths.META)
+        phone.setup.changePassphrase("another one".toCharArray())
+        val tablet = Device("tablet")
+        assertEquals(SyncSetup.Result.Ready, tablet.setup.join("another one".toCharArray()))
+        assertTrue(tablet.sync() is SyncState.Idle)
+        assertEquals(phone.store.mergedState(), tablet.store.mergedState())
+    }
+
+    @Test
+    fun `a join code from a different sync set is recognised before it does any harm`() = runBlocking {
+        val phone = Device("phone"); val tablet = Device("tablet")
+        phone.setup.create("pass phrase".toCharArray())
+        assertTrue(phone.setup.keyOpensStorage(), "nothing stored yet: nothing to contradict the key")
+        phone.write("r1", "note"); phone.sync()
+        assertTrue(phone.setup.keyOpensStorage())
+
+        val elsewhere = PassphraseKeyManager(InMemoryKeyStorage(), FAST).also { it.create("other".toCharArray()) }
+        assertTrue(tablet.keys.importJoinCode(elsewhere.exportJoinCode()), "well formed, so it is accepted as a code")
+        assertFalse(tablet.setup.keyOpensStorage(), "but it does not open what is stored here")
+
+        assertTrue(tablet.keys.importJoinCode(phone.keys.exportJoinCode()))
+        assertTrue(tablet.setup.keyOpensStorage())
+        assertTrue(tablet.sync() is SyncState.Idle)
+        assertEquals(phone.store.mergedState(), tablet.store.mergedState())
     }
 
     @Test

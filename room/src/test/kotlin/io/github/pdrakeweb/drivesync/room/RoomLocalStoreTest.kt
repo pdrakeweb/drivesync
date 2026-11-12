@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import io.github.pdrakeweb.drivesync.core.Change
+import io.github.pdrakeweb.drivesync.core.Fix
 import io.github.pdrakeweb.drivesync.core.Hlc
 import io.github.pdrakeweb.drivesync.core.LocalStore
 import io.github.pdrakeweb.drivesync.core.MergeClass
@@ -274,6 +275,41 @@ class RoomLocalStoreTest {
     }
 
     // --- end to end
+
+    @Test
+    fun `a copied database takes a new identity, keeps its pending changes and converges`() {
+        val a = device("orig.db"); val b = device()
+        a.db.execSQL("INSERT INTO notes(id, title, body) VALUES('n1', 'one', 'x')")
+        assertTrue(a.sync() is SyncState.Idle)
+        a.db.execSQL("INSERT INTO notes(id, title, body) VALUES('n2', 'pending when copied', 'x')")
+        a.helper.close()
+        context.getDatabasePath("orig.db").copyTo(context.getDatabasePath("clone.db"), overwrite = true)
+
+        val copied = device("clone.db")
+        assertEquals("a copy shares the identity", a.store.replicaId, copied.store.replicaId)
+        a.db.execSQL("INSERT INTO notes(id, title, body) VALUES('n3', 'from the original', 'x')")
+        assertTrue(a.sync() is SyncState.Idle)
+        copied.db.execSQL("INSERT INTO notes(id, title, body) VALUES('n4', 'from the copy', 'x')")
+        copied.db.execSQL("UPDATE notes SET title = 'one, edited on the copy' WHERE id = 'n1'")
+        copied.db.execSQL("DELETE FROM notes WHERE id = 'n2'")
+        assertEquals(Fix.ResetThisDevice, (copied.sync() as SyncState.Error).fix)
+        val pendingBefore = copied.pending()
+
+        val newId = runBlocking { copied.store.resetIdentity() }
+        val clone = Device(copied.helper) // a new engine under the new identity
+        assertEquals(newId, clone.store.replicaId)
+        assertTrue(newId != a.store.replicaId)
+        assertEquals("pending changes survive the reset", pendingBefore, clone.pending())
+        assertTrue(runBlocking { clone.store.drainOutbox(1_000) }.all { it.hlc.replica == newId })
+
+        repeat(3) { for (d in listOf(clone, a, b)) assertTrue(d.sync() is SyncState.Idle) }
+        val expected = listOf("n1|one, edited on the copy|x", "n3|from the original|x", "n4|from the copy|x")
+        for (d in listOf(a, b, clone)) assertEquals(expected, d.rows("notes"))
+        val state = runBlocking { a.store.snapshot().toSet() }
+        assertEquals(state, runBlocking { b.store.snapshot().toSet() })
+        assertEquals(state, runBlocking { clone.store.snapshot().toSet() })
+        assertEquals(0, a.pending() + b.pending() + clone.pending())
+    }
 
     @Test
     fun `two databases converge through the sync engine across every merge class`() {

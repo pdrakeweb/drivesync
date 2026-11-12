@@ -73,6 +73,9 @@ abstract class SampleDatabase : RoomDatabase() {
 enum class Backend { LocalFolder, GoogleDrive }
 
 /** Everything that depends on where the data is stored. Rebuilt when the person switches storage. */
+/** What a join code did. */
+enum class CodeResult { Joined, NotACode, BelongsElsewhere }
+
 class Sync(val backend: Backend, val blobs: BlobStore, val engine: SyncEngine, val setup: SyncSetup)
 
 /**
@@ -207,6 +210,44 @@ class SampleApp : Application() {
         refreshKeyState()
         if (result == SyncSetup.Result.Ready) engine.sync()
         return result
+    }
+
+    /**
+     * Joins with a code shown by a device that already has the key (typed, pasted or scanned).
+     * A code is not checked against a passphrase, so it is checked against storage instead: a
+     * valid code for some other synced data must not leave this device unable to read anything.
+     */
+    suspend fun joinWithCode(code: String, onAccepted: () -> Unit = {}): CodeResult {
+        if (!keys.importJoinCode(code)) return CodeResult.NotACode
+        val opens = try {
+            setup.keyOpensStorage()
+        } catch (e: SyncException) {
+            keys.forget()
+            throw e
+        }
+        if (!opens) {
+            keys.forget()
+            return CodeResult.BelongsElsewhere
+        }
+        // Called while the form is still on screen, as in turnOn.
+        onAccepted()
+        refreshKeyState()
+        engine.sync()
+        return CodeResult.Joined
+    }
+
+    /** Sets a new passphrase from this device, which holds the key. Other devices are unaffected. */
+    suspend fun changePassphrase(passphrase: String) = setup.changePassphrase(passphrase.toCharArray())
+
+    /**
+     * The fix for `Fix.ResetThisDevice`: this database was restored from a backup or copied from
+     * another device. It takes a new identity, and the engine is rebuilt around it.
+     */
+    suspend fun resetIdentity() {
+        store.resetIdentity()
+        sync.value = build(sync.value.backend)
+        engine.refreshPending()
+        engine.sync()
     }
 
     /** Call after every local write. */

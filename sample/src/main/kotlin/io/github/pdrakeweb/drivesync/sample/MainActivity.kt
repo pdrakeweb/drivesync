@@ -60,6 +60,9 @@ import io.github.pdrakeweb.drivesync.core.Fix
 import io.github.pdrakeweb.drivesync.core.SyncSetup
 import io.github.pdrakeweb.drivesync.core.SyncState
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.platform.LocalContext
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -74,7 +77,11 @@ class MainActivity : ComponentActivity() {
                 // Switching storage replaces the engine; rebuild the screen around the new one.
                 val sync by app.sync.collectAsStateWithLifecycle()
                 key(sync) {
-                    NotesScreen(app, onUseDrive = { connectDrive() }, onSubmitPassphrase = ::submitPassphrase)
+                    NotesScreen(app, onUseDrive = { connectDrive() }, onSubmitPassphrase = ::submitPassphrase, onChangePassphrase = ::changePassphrase,
+                        // In the activity scope: the screen is rebuilt around the new engine, which
+                        // would cancel work started from inside it.
+                        onResetIdentity = { lifecycleScope.launch { app.resetIdentity() } },
+                    )
                 }
             }
         }
@@ -116,8 +123,31 @@ class MainActivity : ComponentActivity() {
     private fun submitPassphrase(entered: String) {
         lifecycleScope.launch {
             workingOnSetup.value = true
-            turnOn(app, entered) { getSystemService(AutofillManager::class.java)?.commit() }
+            turnOn(app, entered) { isCode ->
+                val autofill = getSystemService(AutofillManager::class.java)
+                // A passphrase is offered for saving. A join code is the key itself and must not
+                // be: cancelling stops the offer Android would otherwise make when the form goes.
+                if (isCode) autofill?.cancel() else autofill?.commit()
+            }
             workingOnSetup.value = false
+        }
+    }
+
+    /**
+     * Sets a new passphrase. As with turning sync on, the password manager is told while the
+     * dialog's fields are still on screen, and only once storage has accepted the change.
+     */
+    private fun changePassphrase(entered: String) {
+        lifecycleScope.launch {
+            changeError.value = null
+            try {
+                app.changePassphrase(entered)
+                getSystemService(AutofillManager::class.java)?.commit()
+                changingPassphrase.value = false
+                notice.value = "Passphrase changed. Devices already syncing are not affected."
+            } catch (e: SyncException) {
+                changeError.value = "The passphrase was not changed: ${e.error}"
+            }
         }
     }
 
@@ -189,12 +219,29 @@ private val setupError = mutableStateOf<String?>(null)
 private val driveMessage = mutableStateOf<String?>(null)
 private val workingOnSetup = mutableStateOf(false)
 private const val ENTRY_NAME = "Sync passphrase"
+private const val JOIN_CODE_PREFIX = "DS1."
+
+/** The change-passphrase dialog: open or not, what went wrong, and a note once it has worked. */
+private val changingPassphrase = mutableStateOf(false)
+private val changeError = mutableStateOf<String?>(null)
+private val notice = mutableStateOf<String?>(null)
 
 /** Turns sync on and records the outcome for the screen; storage failures are shown, never thrown. */
-private suspend fun turnOn(app: SampleApp, passphrase: String, onAccepted: () -> Unit = {}) {
+private suspend fun turnOn(app: SampleApp, passphrase: String, onAccepted: (isCode: Boolean) -> Unit = {}) {
     setupError.value = null
     try {
-        lastSetupResult.value = app.turnOn(passphrase, onAccepted)
+        if (passphrase.trim().startsWith(JOIN_CODE_PREFIX)) {
+            // A join code from another device, typed, pasted or scanned. It is the key itself, so
+            // it is never reported to the password manager as a passphrase to save.
+            lastSetupResult.value = null
+            setupError.value = when (app.joinWithCode(passphrase) { onAccepted(true) }) {
+                CodeResult.Joined -> null
+                CodeResult.NotACode -> "That join code is incomplete or mistyped."
+                CodeResult.BelongsElsewhere -> "That join code is for other synced data, not what is in this storage."
+            }
+            return
+        }
+        lastSetupResult.value = app.turnOn(passphrase) { onAccepted(false) }
     } catch (e: SyncException) {
         lastSetupResult.value = null
         setupError.value = "Could not reach storage: ${e.error}"
@@ -222,6 +269,8 @@ private fun NotesScreen(
     app: SampleApp,
     onUseDrive: () -> Unit,
     onSubmitPassphrase: (passphrase: String) -> Unit,
+    onChangePassphrase: (passphrase: String) -> Unit,
+    onResetIdentity: () -> Unit,
 ) {
     val backend = app.sync.collectAsStateWithLifecycle().value.backend
     val notes by app.database.notes().observe().collectAsStateWithLifecycle(emptyList())
@@ -247,7 +296,20 @@ private fun NotesScreen(
                     }
                     Button(onClick = { scope.launch { app.engine.sync() } }) { Text("Sync now") }
                 }
-                TextButton(onClick = { showJoinCode = true }) { Text("Add another device") }
+                Row {
+                    TextButton(onClick = { showJoinCode = true }) { Text("Add another device") }
+                    TextButton(onClick = { changeError.value = null; changingPassphrase.value = true }) { Text("Change passphrase") }
+                }
+                notice.value?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                // A fix the library names must be something the person can actually do here.
+                if ((state as? SyncState.Error)?.fix == Fix.ResetThisDevice) {
+                    Text(
+                        "This device's copy was restored from a backup or copied from another device. " +
+                            "Nothing is lost: set it up again and it will catch up and upload what it has.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onResetIdentity) { Text("Set this device up again") }
+                }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -316,11 +378,65 @@ private fun NotesScreen(
             title = { Text("Add another device") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("On the other device, enter the same passphrase, or scan this code. Anyone who sees the code can read your synced notes.")
+                    Text(
+                        "On the other device, enter the same passphrase, or scan this code, or type it into the " +
+                            "passphrase box. Anyone who sees the code can read your synced notes.",
+                    )
                     Image(qr, contentDescription = "Join code as a QR code", modifier = Modifier.size(240.dp))
+                    SelectionContainer { Text(code, style = MaterialTheme.typography.bodySmall) }
                 }
             },
             confirmButton = { TextButton(onClick = { showJoinCode = false }) { Text("Done") } },
+        )
+    }
+
+    if (changingPassphrase.value) {
+        var fresh by remember { mutableStateOf("") }
+        var shown by remember { mutableStateOf(false) }
+        val focus = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { changingPassphrase.value = false },
+            title = { Text("Change passphrase") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Devices already syncing keep working. A device added later needs the new passphrase; " +
+                            "the old one stops working. Use this if you have forgotten the old one.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    // The same two fields as when sync was turned on, so the password manager
+                    // updates the entry it already has under this name.
+                    OutlinedTextField(
+                        ENTRY_NAME, {},
+                        Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
+                        label = { Text("Saved in your password manager as") },
+                        readOnly = true,
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        fresh,
+                        {
+                            fresh = it
+                            if (it.isEmpty()) shown = false
+                        },
+                        Modifier.fillMaxWidth().focusRequester(focus).semantics { contentType = ContentType.NewPassword },
+                        label = { Text("New passphrase") },
+                        singleLine = true,
+                        visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    )
+                    if (fresh.isEmpty()) {
+                        TextButton(onClick = {
+                            fresh = PassphraseVault.suggest()
+                            shown = true
+                            focus.requestFocus()
+                        }) { Text("Suggest one") }
+                    }
+                    changeError.value?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = { TextButton(enabled = fresh.length >= 8, onClick = { onChangePassphrase(fresh) }) { Text("Change") } },
+            dismissButton = { TextButton(onClick = { changingPassphrase.value = false }) { Text("Cancel") } },
         )
     }
 }
@@ -394,6 +510,16 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
                 // this, a passphrase suggested and submitted untouched is never offered for saving.
                 passphraseFocus.requestFocus()
             }) { Text("Suggest one") }
+        }
+        // On a later device, the key can also come from a code shown by a device that has it.
+        // Google's scanner needs no camera permission: it runs outside this app and returns text.
+        if (!firstDevice && passphrase.isEmpty()) {
+            val context = LocalContext.current
+            TextButton(enabled = !working, onClick = {
+                GmsBarcodeScanning.getClient(context).startScan()
+                    .addOnSuccessListener { scanned -> scanned.rawValue?.let(submit) }
+                    .addOnFailureListener { setupError.value = "The code scanner could not start: ${it.message}" }
+            }) { Text("Scan a code from another device") }
         }
         when (result) {
             SyncSetup.Result.WrongPassphrase ->

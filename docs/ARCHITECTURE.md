@@ -94,8 +94,22 @@ interface KeyManager {
   annotations are not implemented.
 - **Backups.** An app must exclude its database from Android automatic backup
   (`android:allowBackup="false"` or a backup rule): a restored copy would write as the same replica.
-  The engine detects this (`ReplicaStateBehind`) but a way to give the store a new identity is not
-  built yet.
+  The engine detects this (`ReplicaStateBehind`); the fix is an identity reset, below.
+- **Identity reset.** `RoomLocalStore.resetIdentity()` is the fix for `ReplicaStateBehind`
+  (`Fix.ResetThisDevice`): in one transaction the store takes a new replica id; changes not yet
+  uploaded become the new identity's at their original times, everything already uploaded keeps
+  its author, cursors are kept. The app then builds a new `SyncEngine`. The old identity stays in
+  the device list until retired for inactivity.
+- **Changing the passphrase.** `SyncSetup.changePassphrase` (through the new `KeyManager.rewrap`,
+  D-020) wraps the same data key under a new passphrase and rewrites `meta.json`, the one
+  deliberate exception to "written once". It needs a device that holds the key, so it is also the
+  answer to a forgotten passphrase. It is not a key rotation: someone who already has the key or a
+  join code keeps access. Rotation (new data key, everything re-encrypted) is not built.
+- **Join codes are checked against storage.** `SyncSetup.keyOpensStorage()` tells an app whether a
+  key taken from a join code opens what is stored, so a valid code for other data is refused
+  instead of leaving the device unable to read anything.
+- **Not built:** key rotation, attachments (`attachments/` in DESIGN.md section 6), schema
+  annotations (the DSL is the only way to declare a schema).
 - **Scheduling (S2).** `SyncScheduler` wraps WorkManager: unique periodic work, debounced on-demand
   work, sync on app foreground. The worker finds the engine through `DriveSyncWork.setEngineProvider`.
 - **Encryption (S3).** `PassphraseKeyManager` in `:crypto`: one random 256-bit data key; every object
@@ -108,8 +122,8 @@ interface KeyManager {
   the plaintext, which would have let anyone with storage access confirm a guess at a batch (C-2).
 - **Setup.** `SyncSetup` creates `meta.json` on the first device and opens it with the passphrase on
   later ones; a device that loses the creation race adopts the winner. A join code
-  (`exportJoinCode` / `importJoinCode`) carries the key itself; `JoinQr` draws it. Scanning a QR code
-  is left to the app.
+  (`exportJoinCode` / `importJoinCode`) carries the key itself; `JoinQr` draws it. Scanning is left to the app; the sample uses Google's code scanner (not yet
+  tried against a real camera) and also accepts the code as typed text.
 - **Key storage.** `KeystoreKeyStorage` wraps the data key with an Android Keystore key and keeps it
   in the no-backup directory.
 - **Drive backend (S3).** Lists the whole app-data space and filters by prefix on the device,

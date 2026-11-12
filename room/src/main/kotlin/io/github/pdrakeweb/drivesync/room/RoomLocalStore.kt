@@ -150,6 +150,34 @@ public class RoomLocalStore(
         )
     }
 
+    /**
+     * Gives this database a new sync identity and returns it. This is the fix for
+     * `SyncError.ReplicaStateBehind` (`Fix.ResetThisDevice`): the database was restored from a
+     * backup or copied from another device, so two stores were writing as one replica.
+     *
+     * Nothing is lost. Changes not yet uploaded become the new identity's, at their original
+     * times; everything already uploaded keeps its author; the next sync fetches whatever the old
+     * identity uploaded that this copy never saw. One transaction.
+     *
+     * Afterwards, build a new `SyncEngine` with the returned id; the old engine must not be used
+     * again. The old identity stays listed among the devices until it is retired for inactivity.
+     */
+    public suspend fun resetIdentity(): ReplicaId = io {
+        Sql.transaction(db) {
+            val old = Sql.meta(db, "replica")!!
+            val new = SyncInstaller.newReplicaId()
+            val pending = "(SELECT time FROM _ds_outbox)"
+            val ids = arrayOf<Any?>(new, old)
+            db.execSQL("UPDATE _ds_cells SET replica = ? WHERE replica = ? AND time IN $pending", ids)
+            db.execSQL("UPDATE _ds_cells SET prev_replica = ? WHERE prev_replica = ? AND prev_time IN $pending", ids)
+            db.execSQL("UPDATE _ds_tombstones SET replica = ? WHERE replica = ? AND time IN $pending", ids)
+            db.execSQL("UPDATE _ds_outbox SET prev_replica = ? WHERE prev_replica = ? AND prev_time IN $pending", ids)
+            db.execSQL("UPDATE _ds_meta SET value = ? WHERE key = 'replica'", arrayOf<Any?>(new))
+            db.execSQL("UPDATE _ds_meta SET value = 0 WHERE key = 'pinned'")
+            ReplicaId(new)
+        }
+    }
+
     /** Changes currently set aside, for an app that wants to show them. */
     public suspend fun quarantined(): List<Quarantined> = io { SqlMergeState(db).quarantined().toList() }
 
