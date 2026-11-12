@@ -63,6 +63,10 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.platform.LocalContext
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.hideFromAccessibility
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -404,15 +408,7 @@ private fun NotesScreen(
                             "the old one stops working. Use this if you have forgotten the old one.",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    // The same two fields as when sync was turned on, so the password manager
-                    // updates the entry it already has under this name.
-                    OutlinedTextField(
-                        ENTRY_NAME, {},
-                        Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
-                        label = { Text("Saved in your password manager as") },
-                        readOnly = true,
-                        singleLine = true,
-                    )
+                    EntryName()
                     OutlinedTextField(
                         fresh,
                         {
@@ -467,15 +463,7 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
                 "It encrypts your notes; if you lose it, the synced copy cannot be read.",
             style = MaterialTheme.typography.bodySmall,
         )
-        // A password manager files an entry under a name, and tends to ignore a password field that
-        // has no username beside it. This fixed, read-only field supplies one.
-        OutlinedTextField(
-            ENTRY_NAME, {},
-            Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
-            label = { Text("Saved in your password manager as") },
-            readOnly = true,
-            singleLine = true,
-        )
+        EntryName()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 passphrase,
@@ -529,4 +517,27 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
             else -> if (passphrase.isNotEmpty() && passphrase.length < 8) Text("Use at least 8 characters.", style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+/**
+ * The name the passphrase is filed under in the person's password manager. A password manager
+ * tends to ignore a password field with no username beside it, so the form carries one, but the
+ * person has no use for seeing it: it is present for the autofill framework and takes no room,
+ * cannot be focused and is skipped by screen readers.
+ */
+@Composable
+private fun EntryName() {
+    BasicTextField(
+        ENTRY_NAME, {},
+        Modifier
+            .size(1.dp)
+            .alpha(0f)
+            .focusProperties { canFocus = false }
+            .semantics {
+                contentType = ContentType.Username
+                hideFromAccessibility()
+            },
+        readOnly = true,
+        singleLine = true,
+    )
 }

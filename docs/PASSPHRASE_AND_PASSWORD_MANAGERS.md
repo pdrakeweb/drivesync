@@ -15,18 +15,26 @@ each was found by watching the password manager refuse without it.
    `Modifier.semantics { contentType = ContentType.NewPassword }` on the first device (nothing in
    storage yet: `SyncSetup.status() == NotSetUp`) and `ContentType.Password` on later devices.
    With Views, `android:autofillHints="newPassword"` or `"password"`.
-2. **Put a username beside it.** Google Password Manager returned nothing at all for a password
-   field on its own. A read-only field holding a fixed name, marked `ContentType.Username`, was
-   enough. The name is what the entry is filed under, so choose one the person will recognise
-   and never change it.
+2. **Give it a username, and do not show it.** Google Password Manager returned nothing at all
+   for a password field on its own, so the form needs a username field: read-only, holding a
+   fixed name, marked `ContentType.Username`. The person has no use for it. They never type it,
+   and it only matters as the label of the entry inside their password manager, where it appears
+   anyway. So keep it in the form for the autofill framework and out of sight: one density-
+   independent pixel in size, fully transparent, not focusable, hidden from screen readers.
+   Save and fill were both shown working with the field hidden this way. Choose a name the person
+   will recognise in their password manager, and never change it.
 3. **Report the submission while the form is still on screen**, and only when the passphrase was
    accepted: `getSystemService(AutofillManager::class.java).commit()`. Do not clear the field
    first; the password manager reads it at that moment. Then let the form go away.
 
 ```kotlin
-OutlinedTextField(
+// Present for the password manager, invisible to the person.
+BasicTextField(
     "Sync passphrase", {}, readOnly = true,
-    modifier = Modifier.semantics { contentType = ContentType.Username },
+    modifier = Modifier
+        .size(1.dp).alpha(0f)
+        .focusProperties { canFocus = false }
+        .semantics { contentType = ContentType.Username; hideFromAccessibility() },
 )
 OutlinedTextField(
     passphrase, { passphrase = it },
@@ -124,7 +132,7 @@ The system's prompt lets them decline, which is the right shape: an offer, never
 
 `SyncSetup.changePassphrase(new)` works from any device that still holds the key, which makes it
 the answer to a forgotten passphrase. Devices already syncing are not asked for anything; a
-device added later needs the new one. Show it with the same two fields (the fixed username and a
+device added later needs the new one. Show it with the same two fields (the hidden username and a
 new-password field) so the password manager updates the entry it already has, and report the
 submission the same way. It does not lock out someone who already has the key.
 
