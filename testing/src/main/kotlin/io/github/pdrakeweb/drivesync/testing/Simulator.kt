@@ -27,6 +27,10 @@ public class SimulationOptions(
     public val maxSteps: Int = 90,
     /** Small batches force multi-batch pushes. */
     public val maxBatchChanges: Int = 4,
+    /** Passed to the engines: compact after this many own batches. Zero leaves compaction off. */
+    public val compactAfterBatches: Int = 0,
+    /** When set, replica 0 is away for this many days in the middle third of the run, then returns. */
+    public val absenceDays: Int = 0,
     /** The key manager for replica number `index`; all must hold the same key. Default: the test scramble. */
     public val keys: (index: Int) -> KeyManager = { InsecureTestKeyManager() },
 ) {
@@ -42,6 +46,8 @@ public class SimulationResult(
     public val steps: Int,
     public val objectsStored: Int,
     public val crashes: Int,
+    public val snapshotsApplied: Int = 0,
+    public val batchesDeleted: Int = 0,
     public val failedCycles: Int,
 )
 
@@ -93,7 +99,7 @@ public object Simulator {
         override fun hiddenFromListing(path: String): Boolean = lag > 0 && rnd.nextDouble() < lag
     }
 
-    private class Node(index: Int, val skew: Long, shared: InMemoryBlobStore, rnd: Random, now: () -> Long, val batch: Int, val keys: KeyManager) {
+    private class Node(index: Int, val skew: Long, shared: InMemoryBlobStore, rnd: Random, now: () -> Long, val batch: Int, val keys: KeyManager, val compact: Int) {
         val id = ReplicaId("r$index")
         val clock: () -> Long = { now() + skew }
         val store = InMemoryLocalStore(id, registry, clock)
@@ -101,7 +107,9 @@ public object Simulator {
         val blobs = FaultyBlobStore(shared, plan)
         var engine = newEngine()
 
-        fun newEngine() = SyncEngine(id, store, blobs, keys, registry, SyncConfig("device $id", "sim", batch), clock)
+        var away = false
+
+        fun newEngine() = SyncEngine(id, store, blobs, keys, registry, SyncConfig("device $id", "sim", batch, compact), clock)
 
         fun restart() {
             engine = newEngine()
@@ -114,11 +122,13 @@ public object Simulator {
         val shared = InMemoryBlobStore(pageSize = 7)
         val nodes = List(rnd.nextInt(2, 5)) { i ->
             val skew = if (options.maxSkewMillis == 0L) 0L else rnd.nextLong(-options.maxSkewMillis, options.maxSkewMillis + 1)
-            Node(i, skew, shared, rnd, { now }, options.maxBatchChanges, options.keys(i))
+            Node(i, skew, shared, rnd, { now }, options.maxBatchChanges, options.keys(i), options.compactAfterBatches)
         }
         val violations = ArrayList<String>()
         var crashes = 0
         var failed = 0
+        var snapshotCount = 0
+        var deletedBatches = 0
 
         // The oracle: every local write, as stamped by the store that made it.
         val fieldWrites = HashMap<Pair<RowRef, String>, MutableList<Pair<Hlc, Value>>>()
@@ -146,7 +156,10 @@ public object Simulator {
         }
 
         suspend fun cycle(node: Node): SyncState? = try {
-            node.engine.sync()
+            node.engine.sync().also {
+                snapshotCount += node.engine.lastCycle.snapshotsApplied
+                deletedBatches += node.engine.lastCycle.batchesDeleted
+            }
         } catch (e: SimulatedCrash) {
             crashes++
             node.restart()
@@ -156,6 +169,13 @@ public object Simulator {
         val steps = rnd.nextInt(options.minSteps, options.maxSteps + 1)
         repeat(steps) { step ->
             now += rnd.nextLong(0, 5_000)
+            // A long absence: replica 0 stops syncing for the middle third while time moves on.
+            if (options.absenceDays > 0) {
+                val from = steps / 3
+                val until = 2 * steps / 3
+                nodes[0].away = step in from until until
+                if (step in from until until) now += options.absenceDays * 86_400_000L / (until - from) + 1
+            }
             val node = nodes[rnd.nextInt(nodes.size)]
             when (rnd.nextInt(100)) {
                 in 0 until 26 -> {
@@ -199,7 +219,7 @@ public object Simulator {
                         deleted += row
                     }
                 }
-                in 64 until 90 -> {
+                in 64 until 90 -> if (!node.away) {
                     if (options.faults) {
                         when (rnd.nextInt(10)) {
                             0, 1 -> node.plan.failIn = rnd.nextInt(0, 10)
@@ -220,7 +240,7 @@ public object Simulator {
                     node.plan.failIn = -1
                     node.plan.crashIn = -1
                 }
-                in 90 until 96 -> if (options.faults) node.plan.offline = !node.plan.offline
+                in 90 until 96 -> if (options.faults && !node.away) node.plan.offline = !node.plan.offline
                 else -> now += rnd.nextLong(0, 3_600_000)
             }
         }
@@ -299,10 +319,10 @@ public object Simulator {
             if (contains(shared.raw(path)!!, marker)) violations += "PLAINTEXT_AT_REST $path"
         }
 
-        SimulationResult(seed, violations, steps, shared.paths().size, crashes, failed)
+        SimulationResult(seed, violations, steps, shared.paths().size, crashes, snapshotCount, deletedBatches, failed)
     }
 
-    private val NAME = Regex("replicas/r\\d\\.json|batches/r\\d/\\d{12}-[0-9a-f]{16}\\.bin")
+    private val NAME = Regex("replicas/r\\d\\.json|batches/r\\d/\\d{12}-[0-9a-f]{16}\\.bin|snapshots/r\\d-\\d{20}\\.bin")
 
     private fun contains(haystack: ByteArray, needle: ByteArray): Boolean =
         (0..haystack.size - needle.size).any { i -> needle.indices.all { haystack[i + it] == needle[it] } }
