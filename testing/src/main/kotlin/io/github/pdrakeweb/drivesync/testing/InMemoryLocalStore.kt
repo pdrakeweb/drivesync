@@ -3,6 +3,7 @@ package io.github.pdrakeweb.drivesync.testing
 import io.github.pdrakeweb.drivesync.core.ApplyReport
 import io.github.pdrakeweb.drivesync.core.Cell
 import io.github.pdrakeweb.drivesync.core.Change
+import io.github.pdrakeweb.drivesync.core.Conflict
 import io.github.pdrakeweb.drivesync.core.Hlc
 import io.github.pdrakeweb.drivesync.core.HlcClock
 import io.github.pdrakeweb.drivesync.core.LocalStore
@@ -41,6 +42,7 @@ public class InMemoryLocalStore(
     private val cursors = HashMap<ReplicaId, Long>()
     private val quarantine = LinkedHashMap<Change, Quarantined>()
     private var schemaSeen = 0
+    private val conflictLog = LinkedHashMap<Triple<RowRef, String, Hlc>, Conflict>()
 
     private fun <T> locked(block: () -> T): T = synchronized(this, block)
 
@@ -65,6 +67,8 @@ public class InMemoryLocalStore(
         override fun quarantine(item: Quarantined) {
             quarantine[item.change] = item
         }
+        override fun recordConflict(conflict: Conflict): Boolean =
+            conflictLog.putIfAbsent(Triple(conflict.row, conflict.column, conflict.lost.hlc), conflict) == null
         override fun release(item: Quarantined) {
             quarantine.remove(item.change)
         }
@@ -84,7 +88,9 @@ public class InMemoryLocalStore(
         // Whole-row classes stamp every column of one write with the same timestamp.
         val shared = if (spec.mergeClass == MergeClass.LWW_FIELDS) null else clock.tick()
         val changes = columns.entries.sortedBy { it.key }.map { (column, value) ->
-            Change(table, rowId, column, value, shared ?: clock.tick())
+            // A field write records the timestamp of the value it replaces (see Change.prev).
+            val prev = if (shared == null) cells[row]?.get(column)?.hlc else null
+            Change(table, rowId, column, value, shared ?: clock.tick(), prev)
         }
         MergeEngine.apply(state, changes, localRegistry)
         outbox += changes
@@ -124,6 +130,10 @@ public class InMemoryLocalStore(
     @Synchronized
     public fun quarantined(): List<Quarantined> = quarantine.values.toList()
 
+    /** The conflict log, oldest first. */
+    @Synchronized
+    public fun conflicts(): List<Conflict> = conflictLog.values.toList()
+
     override suspend fun drainOutbox(max: Int): List<Change> = locked {
         if (pinned == 0 && outbox.isNotEmpty()) {
             var n = minOf(max, outbox.size)
@@ -155,7 +165,7 @@ public class InMemoryLocalStore(
     override suspend fun snapshot(): Sequence<Change> = locked {
         val all = ArrayList<Change>()
         for ((row, columns) in cells) for ((column, cell) in columns) {
-            all += Change(row.table, row.rowId, column, cell.value, cell.hlc)
+            all += Change(row.table, row.rowId, column, cell.value, cell.hlc, cell.prev)
         }
         for ((row, hlc) in tombstones) all += Change.tombstone(row.table, row.rowId, hlc)
         all.asSequence()

@@ -19,6 +19,8 @@ public data class TableSpec(
     val name: String,
     val mergeClass: MergeClass,
     val parents: List<ParentRef> = emptyList(),
+    /** For [MergeClass.LWW_FIELDS] tables: record concurrent edits of one column in the conflict log. */
+    val recordConflicts: Boolean = false,
 )
 
 /**

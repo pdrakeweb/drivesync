@@ -5,7 +5,9 @@ package io.github.pdrakeweb.drivesync.room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import io.github.pdrakeweb.drivesync.core.ApplyReport
+import io.github.pdrakeweb.drivesync.core.Cell
 import io.github.pdrakeweb.drivesync.core.Change
+import io.github.pdrakeweb.drivesync.core.Conflict
 import io.github.pdrakeweb.drivesync.core.Hlc
 import io.github.pdrakeweb.drivesync.core.LocalStore
 import io.github.pdrakeweb.drivesync.core.MergeEngine
@@ -61,14 +63,15 @@ public class RoomLocalStore(
                 db.execSQL("UPDATE _ds_meta SET value = ? WHERE key = 'pinned'", arrayOf<Any?>(pinned))
             }
             val replica = replicaId
-            Sql.query(db, "SELECT tbl, row_id, col, value, time FROM _ds_outbox WHERE seq <= ? ORDER BY seq", arrayOf<Any?>(pinned)) { c ->
+            Sql.query(db, "SELECT tbl, row_id, col, value, time, prev_time, prev_replica FROM _ds_outbox WHERE seq <= ? ORDER BY seq", arrayOf<Any?>(pinned)) { c ->
                 val out = ArrayList<Change>()
                 while (c.moveToNext()) {
                     val hlc = Hlc(c.getLong(4), replica)
                     out += if (c.isNull(2)) {
                         Change.tombstone(c.getString(0), c.getString(1), hlc)
                     } else {
-                        Change(c.getString(0), c.getString(1), c.getString(2), Sql.value(c, 3), hlc)
+                        val prev = if (c.isNull(5)) null else Hlc(c.getLong(5), ReplicaId(c.getString(6)))
+                        Change(c.getString(0), c.getString(1), c.getString(2), Sql.value(c, 3), hlc, prev)
                     }
                 }
                 out
@@ -104,9 +107,10 @@ public class RoomLocalStore(
     override suspend fun snapshot(): Sequence<Change> = io {
         val all = ArrayList<Change>()
         Sql.transaction(db) {
-            Sql.query(db, "SELECT tbl, row_id, col, value, time, replica FROM _ds_cells") { c ->
+            Sql.query(db, "SELECT tbl, row_id, col, value, time, replica, prev_time, prev_replica FROM _ds_cells") { c ->
                 while (c.moveToNext()) {
-                    all += Change(c.getString(0), c.getString(1), c.getString(2), Sql.value(c, 3), Hlc(c.getLong(4), ReplicaId(c.getString(5))))
+                    val prev = if (c.isNull(6)) null else Hlc(c.getLong(6), ReplicaId(c.getString(7)))
+                    all += Change(c.getString(0), c.getString(1), c.getString(2), Sql.value(c, 3), Hlc(c.getLong(4), ReplicaId(c.getString(5))), prev)
                 }
             }
             Sql.query(db, "SELECT tbl, row_id, time, replica FROM _ds_tombstones") { c ->
@@ -148,6 +152,29 @@ public class RoomLocalStore(
 
     /** Changes currently set aside, for an app that wants to show them. */
     public suspend fun quarantined(): List<Quarantined> = io { SqlMergeState(db).quarantined().toList() }
+
+    /** The conflict log (tables declared with `recordConflicts`), oldest first. */
+    public suspend fun conflicts(): List<Conflict> = io {
+        Sql.query(
+            db,
+            "SELECT tbl, row_id, col, kept_value, kept_time, kept_replica, lost_value, lost_time, lost_replica " +
+                "FROM _ds_conflicts ORDER BY rowid",
+        ) { c ->
+            val out = ArrayList<Conflict>()
+            while (c.moveToNext()) {
+                out += Conflict(
+                    RowRef(c.getString(0), c.getString(1)),
+                    c.getString(2),
+                    kept = Cell(Sql.value(c, 3), Hlc(c.getLong(4), ReplicaId(c.getString(5)))),
+                    lost = Cell(Sql.value(c, 6), Hlc(c.getLong(7), ReplicaId(c.getString(8)))),
+                )
+            }
+            out
+        }
+    }
+
+    /** Empties the conflict log, once the app has shown or resolved its entries. */
+    public suspend fun clearConflicts(): Unit = io { db.execSQL("DELETE FROM _ds_conflicts") }
 
     private fun rowsIn(status: RowStatus): List<RowRef> =
         Sql.query(db, "SELECT tbl, row_id FROM _ds_rowstate WHERE status = ? ORDER BY tbl, row_id", arrayOf<Any?>(status.name)) { c ->

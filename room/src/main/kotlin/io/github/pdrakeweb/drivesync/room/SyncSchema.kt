@@ -18,6 +18,8 @@ public class SyncTable(
     public val mergeClass: MergeClass,
     public val primaryKey: String = "id",
     public val parents: List<ParentRef> = emptyList(),
+    /** For [MergeClass.LWW_FIELDS] tables: keep concurrent edits of one column in the conflict log. */
+    public val recordConflicts: Boolean = false,
 ) {
     init {
         requireIdentifier(name)
@@ -33,7 +35,7 @@ public class SyncSchema(
     validator: ChangeValidator? = null,
 ) {
     public val registry: MergeRegistry =
-        MergeRegistry(schemaVersion, tables.map { TableSpec(it.name, it.mergeClass, it.parents) }, validator)
+        MergeRegistry(schemaVersion, tables.map { TableSpec(it.name, it.mergeClass, it.parents, it.recordConflicts) }, validator)
 
     internal fun table(name: String): SyncTable? = tables.firstOrNull { it.name == name }
 
@@ -60,9 +62,10 @@ public class SyncSchemaBuilder internal constructor(private val schemaVersion: I
         name: String,
         mergeClass: MergeClass,
         primaryKey: String = "id",
+        recordConflicts: Boolean = false,
         parents: TableBuilder.() -> Unit = {},
     ) {
-        tables += SyncTable(name, mergeClass, primaryKey, TableBuilder().apply(parents).parents)
+        tables += SyncTable(name, mergeClass, primaryKey, TableBuilder().apply(parents).parents, recordConflicts)
     }
 
     public class TableBuilder internal constructor() {

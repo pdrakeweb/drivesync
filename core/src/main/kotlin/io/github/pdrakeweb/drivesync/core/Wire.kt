@@ -53,6 +53,10 @@ public data class ReplicaFile(
     val cursors: Map<String, Long>,
     val schemaVersion: Int,
     val retired: Boolean = false,
+    /** Batches up to this sequence number were deleted by compaction; [snapshot] covers them. */
+    val compactedThrough: Long = 0,
+    /** Path of this replica's latest snapshot, when it has written one. */
+    val snapshot: String? = null,
 )
 
 @Serializable
@@ -86,6 +90,16 @@ public object WireCodec {
 
     public fun encodeReplicaFile(file: ReplicaFile): ByteArray =
         json.encodeToString(ReplicaFile.serializer(), file).encodeToByteArray()
+
+    public fun encodeSnapshot(snapshot: Snapshot): ByteArray = cbor.encodeToByteArray(Snapshot.serializer(), snapshot)
+
+    public fun decodeSnapshot(path: String, plain: ByteArray): Snapshot = decoding(path) {
+        val format = cbor.decodeFromByteArray(BatchProbe.serializer(), plain).header.format
+        if (format != WIRE_FORMAT) throw SyncException(SyncError.UnsupportedFormat(path, format))
+        val snapshot = cbor.decodeFromByteArray(Snapshot.serializer(), plain)
+        if (snapshot.header.count != snapshot.changes.size) throw SyncException(SyncError.Corrupt(path))
+        snapshot
+    }
 
     public fun encodeMeta(meta: MetaFile): ByteArray = json.encodeToString(MetaFile.serializer(), meta).encodeToByteArray()
 
@@ -144,6 +158,18 @@ public object Paths {
 
     internal fun tagOf(path: String): String? = BATCH_FILE.matchEntire(path)?.groupValues?.get(3)
 
+    public fun snapshotPrefix(replica: ReplicaId): String = "snapshots/${replica.value}-"
+
+    /** `snapshots/<replica>-<clock, 20 digits>.bin`: the replica's merged state as of that clock value. */
+    public fun snapshot(replica: ReplicaId, clock: Long): String =
+        snapshotPrefix(replica) + clock.toString().padStart(20, '0') + ".bin"
+
+    private val SNAPSHOT_FILE = Regex("snapshots/([A-Za-z0-9_-]{1,64})-(\\d{20})\\.bin")
+
+    /** True when [path] is a well-formed snapshot path of [replica]. */
+    public fun isSnapshotOf(replica: ReplicaId, path: String): Boolean =
+        path.startsWith(snapshotPrefix(replica)) && SNAPSHOT_FILE.matches(path)
+
     private val TAG = Regex("[0-9a-f]{16}")
 
 
@@ -165,3 +191,21 @@ public data class MetaFile(
     @Serializable
     public data class Kdf(val alg: String, val params: Map<String, String>, val salt: String)
 }
+
+@Serializable
+public data class SnapshotHeader(
+    val format: Int = WIRE_FORMAT,
+    val replicaId: ReplicaId,
+    val schemaVersion: Int,
+    /** Highest batch sequence per replica whose changes this snapshot contains, the writer's own included. */
+    val covers: Map<String, Long>,
+    val count: Int,
+)
+
+/**
+ * One replica's full merged state as changes (cells with their timestamps, and tombstones).
+ * Applying it is the same as applying every batch it [SnapshotHeader.covers], so a device that is
+ * new, or was away while old batches were deleted, starts from here.
+ */
+@Serializable
+public data class Snapshot(val header: SnapshotHeader, val changes: List<Change>)

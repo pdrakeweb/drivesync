@@ -115,6 +115,25 @@ interface KeyManager {
 - **Drive backend (S3).** Lists the whole app-data space and filters by prefix on the device,
   rather than rely on how `name contains` treats slashes; exact-name queries for single objects.
   Among files sharing a name the oldest is the object. Not yet run against real Drive.
+- **Snapshots and compaction (S4).** When a replica has `compactAfterBatches` (default 200) of its own
+  batches in storage it writes `snapshots/<replica>-<clock>.bin`: its whole merged state as changes,
+  with the batch sequence it covers per replica. It then announces `compactedThrough` and the
+  snapshot path in its manifest, and only after that deletes its own batches that every active
+  replica has applied. A replica whose cursor is below `compactedThrough` (new, or long away) applies
+  the snapshot and takes over its cursors, then pulls batches as usual. Deleting is always safe
+  because the announced snapshot contains what the batches did; waiting for active replicas only
+  spares them a rebuild. Nothing is compacted while changes are quarantined, since a snapshot would
+  not contain them. Tombstones are kept in snapshots and are never collected.
+- **Retirement (S4).** A replica not seen for `retireAfterMillis` (default 180 days, judged from the
+  last-seen time in its manifest) no longer holds deletion back and is shown as retired. Nothing is
+  written on its behalf (ADR-0001): when it returns it rebuilds from a snapshot, pushes what it had
+  pending, and is active again. Its files stay until it deletes them.
+- **Conflict log (S4).** Opt-in per `LWW_FIELDS` table. A field write carries `prev`, the timestamp
+  of the value it replaced on the device that made it. When two values for a column meet, the
+  loser is logged only if the author of the kept value cannot have seen it (`kept.prev` is older
+  than the lost value, or absent). Knowing overwrites, redelivery and snapshot replay are never
+  logged. The log is per device and best-effort: a concurrent edit that is superseded by a knowing
+  overwrite before it arrives is not reported.
 - **Paths are relative** to the sync root `drivesync/v1/`; a backend applies the root.
 - **Deferred:** the conflict log (S4), `meta.json` and real encryption (S3). Until S3, tests use
   `InsecureTestKeyManager`, which is a scramble, not encryption.

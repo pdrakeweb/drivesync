@@ -13,11 +13,13 @@ import org.junit.jupiter.api.TestFactory
 class SimulationTest {
     private val runs = System.getProperty("drivesync.simRuns", "500").toInt()
 
-    private fun campaign(name: String, options: SimulationOptions) {
+    private fun campaign(name: String, options: SimulationOptions): Pair<Int, Int> {
         var steps = 0L
         var objects = 0L
         var crashes = 0
         var failedCycles = 0
+        var snapshots = 0
+        var deleted = 0
         val failures = ArrayList<String>()
         val started = System.nanoTime()
         for (seed in 0 until runs.toLong()) {
@@ -26,26 +28,43 @@ class SimulationTest {
             objects += result.objectsStored
             crashes += result.crashes
             failedCycles += result.failedCycles
+            snapshots += result.snapshotsApplied
+            deleted += result.batchesDeleted
             if (result.violations.isNotEmpty() && failures.size < 5) {
                 failures += "seed $seed: ${result.violations.take(3)}"
             }
         }
         println(
             "simulation[$name] runs=$runs steps=$steps objects=$objects crashes=$crashes " +
-                "failedCycles=$failedCycles violations=${failures.size} " +
+                "snapshotsApplied=$snapshots batchesDeleted=$deleted failedCycles=$failedCycles violations=${failures.size} " +
                 "${(System.nanoTime() - started) / 1_000_000} ms",
         )
         assertEquals(emptyList<String>(), failures)
         if (options.faults) assertTrue(crashes > 0 && failedCycles > 0, "the fault injection must actually fire")
+        return snapshots to deleted
     }
 
     @Test
-    fun `replicas converge under faults, crashes, lag, partitions and clock skew`() =
+    fun `replicas converge under faults, crashes, lag, partitions and clock skew`() {
         campaign("faults+skew", SimulationOptions())
+    }
 
     @Test
-    fun `replicas converge without faults or skew`() =
+    fun `replicas converge without faults or skew`() {
         campaign("clean", SimulationOptions(maxSkewMillis = 0, faults = false))
+    }
+
+    @Test
+    fun `replicas converge while compacting under faults`() {
+        campaign("faults+skew+compaction", SimulationOptions(compactAfterBatches = 2))
+    }
+
+    @Test
+    fun `a device offline for 200 days rejoins correctly`() {
+        val totals = campaign("absent-200-days", SimulationOptions(compactAfterBatches = 2, absenceDays = 200, minSteps = 60, maxSteps = 120))
+        assertTrue(totals.first > runs / 2, "returning devices must actually rebuild from snapshots: ${totals.first}")
+        assertTrue(totals.second > runs, "batches must actually be deleted while a device is away: ${totals.second}")
+    }
 
     @Test
     fun `a run is fully determined by its seed`() {
