@@ -9,6 +9,8 @@ import android.view.autofill.AutofillManager
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.semantics
 import android.util.Log
 import androidx.activity.result.IntentSenderRequest
@@ -329,6 +331,7 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
     val working by workingOnSetup
     val result by lastSetupResult
     var revealed by remember { mutableStateOf(false) }
+    val passphraseFocus = remember { FocusRequester() }
     // Has sync been set up in this storage already? That decides what the field is to the
     // password manager: a place to create a passphrase (it offers to suggest and then save one),
     // or a place to enter the existing one (it offers the saved one). Unknown counts as existing.
@@ -365,7 +368,7 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
                     // Whatever the person types after emptying the field is theirs: hide it again.
                     if (it.isEmpty()) revealed = false
                 },
-                Modifier.weight(1f).semantics {
+                Modifier.weight(1f).focusRequester(passphraseFocus).semantics {
                     contentType = if (firstDevice) ContentType.NewPassword else ContentType.Password
                 },
                 label = { Text("Passphrase") },
@@ -387,6 +390,9 @@ private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
             TextButton(enabled = !working, onClick = {
                 passphrase = PassphraseVault.suggest()
                 revealed = true
+                // Autofill only watches a form once one of its fields has had focus. Without
+                // this, a passphrase suggested and submitted untouched is never offered for saving.
+                passphraseFocus.requestFocus()
             }) { Text("Suggest one") }
         }
         when (result) {
