@@ -14,5 +14,7 @@ Build and test: `./gradlew build` (JDK 17+). The long simulation: `./gradlew :te
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Milestones S0–S4 and what proves each |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | What is settled and who settled it |
 | [`docs/handoff/IMPLEMENT.md`](docs/handoff/IMPLEMENT.md) | Instructions for the implementation session |
+| [`docs/PASSPHRASE_AND_PASSWORD_MANAGERS.md`](docs/PASSPHRASE_AND_PASSWORD_MANAGERS.md) | How an app should let a password manager suggest, save and restore the sync passphrase |
+| [`tests/README.md`](tests/README.md) | Device scenarios: two emulators through a local folder and through Google Drive |
 
 Apache 2.0.

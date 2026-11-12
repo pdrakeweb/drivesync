@@ -25,6 +25,10 @@ dependencies {
     api(project(":crypto"))
     // QR rendering for the join code. Pure Java, no Android or network code.
     implementation(libs.zxing.core)
+    // Credential Manager: saving and fetching the passphrase through the person's password manager.
+    api(libs.androidx.credentials)
+    // Lets Credential Manager reach Google Password Manager on Android 13 and older.
+    implementation(libs.androidx.credentials.play)
 
     testImplementation(project(":testing"))
     testImplementation(libs.work.testing)
