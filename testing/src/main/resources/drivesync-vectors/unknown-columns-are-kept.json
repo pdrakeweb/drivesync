@@ -1,0 +1,10 @@
+{
+  "name": "unknown-columns-are-kept",
+  "description": "A column this app version has never heard of (written by a newer version) is stored and merged like any other, so it can be re-emitted in a snapshot.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "t"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "column": "added_in_v2", "value": {"bytes": "AAEC/w=="}, "hlc": "1000:0:b"}
+  ],
+  "expected": {"rows": {"notes": {"n1": {"title": {"text": "t"}, "added_in_v2": {"bytes": "AAEC/w=="}}}}}
+}

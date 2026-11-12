@@ -1,0 +1,22 @@
+{
+  "name": "append-only-both-inserts-survive",
+  "description": "Rows inserted on different devices into an append-only table all survive; a tombstone removes one. All columns of one insert share a timestamp.",
+  "tables": [{"name": "log", "mergeClass": "APPEND_ONLY"}],
+  "changes": [
+    {"table": "log", "row": "a-1", "column": "event", "value": {"text": "set finished"}, "hlc": "1000:0:a"},
+    {"table": "log", "row": "a-1", "column": "reps", "value": {"int": 8}, "hlc": "1000:0:a"},
+    {"table": "log", "row": "b-1", "column": "event", "value": {"text": "set finished"}, "hlc": "1000:0:b"},
+    {"table": "log", "row": "b-1", "column": "reps", "value": {"int": 10}, "hlc": "1000:0:b"},
+    {"table": "log", "row": "b-2", "column": "event", "value": {"text": "mistake"}, "hlc": "1100:0:b"},
+    {"table": "log", "row": "b-2", "delete": true, "hlc": "1200:0:a"}
+  ],
+  "expected": {
+    "rows": {
+      "log": {
+        "a-1": {"event": {"text": "set finished"}, "reps": {"int": 8}},
+        "b-1": {"event": {"text": "set finished"}, "reps": {"int": 10}}
+      }
+    },
+    "deleted": ["log/b-2"]
+  }
+}

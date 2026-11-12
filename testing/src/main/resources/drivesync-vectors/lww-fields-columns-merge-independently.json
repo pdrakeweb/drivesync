@@ -1,0 +1,16 @@
+{
+  "name": "lww-fields-columns-merge-independently",
+  "description": "Concurrent edits to different columns of one row both survive. Value types are preserved, including an explicit null.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "old"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "column": "pinned", "value": {"int": 0}, "hlc": "1000:1:a"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "new title"}, "hlc": "3000:0:a"},
+    {"table": "notes", "row": "n1", "column": "pinned", "value": {"int": 1}, "hlc": "2000:0:b"},
+    {"table": "notes", "row": "n1", "column": "weight", "value": {"real": 1.5}, "hlc": "2000:1:b"},
+    {"table": "notes", "row": "n1", "column": "colour", "value": null, "hlc": "2000:2:b"}
+  ],
+  "expected": {
+    "rows": {"notes": {"n1": {"title": {"text": "new title"}, "pinned": {"int": 1}, "weight": {"real": 1.5}, "colour": null}}}
+  }
+}

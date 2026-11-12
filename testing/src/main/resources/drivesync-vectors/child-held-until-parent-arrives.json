@@ -1,0 +1,22 @@
+{
+  "name": "child-held-until-parent-arrives",
+  "description": "A child row whose parent has not arrived is kept but not shown. A child with a null parent column, or whose parent exists, is shown.",
+  "tables": [
+    {"name": "notes", "mergeClass": "LWW_FIELDS"},
+    {"name": "items", "mergeClass": "LWW_FIELDS", "parents": [{"column": "note_id", "table": "notes"}]}
+  ],
+  "changes": [
+    {"table": "items", "row": "i1", "column": "note_id", "value": {"text": "n-missing"}, "hlc": "1000:0:a"},
+    {"table": "items", "row": "i1", "column": "text", "value": {"text": "waiting"}, "hlc": "1000:1:a"},
+    {"table": "items", "row": "i2", "column": "note_id", "value": {"text": "n1"}, "hlc": "1000:2:a"},
+    {"table": "items", "row": "i3", "column": "note_id", "value": null, "hlc": "1000:3:a"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "parent"}, "hlc": "900:0:a"}
+  ],
+  "expected": {
+    "rows": {
+      "notes": {"n1": {"title": {"text": "parent"}}},
+      "items": {"i2": {"note_id": {"text": "n1"}}, "i3": {"note_id": null}}
+    },
+    "held": ["items/i1"]
+  }
+}

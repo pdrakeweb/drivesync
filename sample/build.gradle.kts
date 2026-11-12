@@ -2,10 +2,10 @@ plugins {
     alias(libs.plugins.android.application)
 }
 android {
-    namespace = "drivesync.sample"
+    namespace = "io.github.pdrakeweb.drivesync.sample"
     compileSdk = libs.versions.compileSdk.get().toInt()
     defaultConfig {
-        applicationId = "drivesync.sample"
+        applicationId = "io.github.pdrakeweb.drivesync.sample"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1

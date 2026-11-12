@@ -1,0 +1,13 @@
+{
+  "name": "lww-row-whole-row-replaced",
+  "description": "For a whole-row table, the columns of one write share a timestamp and the latest write is the entire row: columns it did not include are gone.",
+  "tables": [{"name": "settings", "mergeClass": "LWW_ROW"}],
+  "changes": [
+    {"table": "settings", "row": "s", "column": "theme", "value": {"text": "dark"}, "hlc": "1000:0:a"},
+    {"table": "settings", "row": "s", "column": "units", "value": {"text": "kg"}, "hlc": "1000:0:a"},
+    {"table": "settings", "row": "s", "column": "theme", "value": {"text": "light"}, "hlc": "2000:0:b"},
+    {"table": "settings", "row": "s", "column": "sound", "value": {"int": 1}, "hlc": "2000:0:b"},
+    {"table": "settings", "row": "s", "column": "units", "value": {"text": "lb"}, "hlc": "1500:0:c"}
+  ],
+  "expected": {"rows": {"settings": {"s": {"theme": {"text": "light"}, "sound": {"int": 1}}}}}
+}

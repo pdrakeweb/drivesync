@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
 }
 android {
-    namespace = "drivesync.android"
+    namespace = "io.github.pdrakeweb.drivesync.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
     defaultConfig { minSdk = libs.versions.minSdk.get().toInt() }
     compileOptions {

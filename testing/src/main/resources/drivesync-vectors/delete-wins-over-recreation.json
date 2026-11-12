@@ -1,0 +1,13 @@
+{
+  "name": "delete-wins-over-recreation",
+  "description": "A row id that was deleted is never reused: another device writing all its columns again, later, does not bring it back.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "fixed-id", "column": "title", "value": {"text": "first"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "fixed-id", "delete": true, "hlc": "2000:0:a"},
+    {"table": "notes", "row": "fixed-id", "column": "title", "value": {"text": "created again"}, "hlc": "5000:0:b"},
+    {"table": "notes", "row": "fixed-id", "column": "body", "value": {"text": "created again"}, "hlc": "5000:1:b"},
+    {"table": "notes", "row": "fixed-id", "delete": true, "hlc": "1500:0:c"}
+  ],
+  "expected": {"rows": {"notes": {}}, "deleted": ["notes/fixed-id"]}
+}

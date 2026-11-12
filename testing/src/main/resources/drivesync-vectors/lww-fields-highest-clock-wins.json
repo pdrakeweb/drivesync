@@ -1,0 +1,10 @@
+{
+  "name": "lww-fields-highest-clock-wins",
+  "description": "Two devices write the same column. The write with the higher timestamp remains, whatever order they arrive in.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "from a"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "from b"}, "hlc": "2000:0:b"}
+  ],
+  "expected": {"rows": {"notes": {"n1": {"title": {"text": "from b"}}}}}
+}

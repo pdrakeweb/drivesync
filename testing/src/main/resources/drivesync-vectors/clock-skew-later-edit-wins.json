@@ -1,0 +1,10 @@
+{
+  "name": "clock-skew-later-edit-wins",
+  "description": "Device fast has a wall clock two days ahead. Device a sees its write, absorbs the timestamp, and then edits: the edit carries the same wall time with a higher counter, so it wins although the real clock of a is far behind.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "from the fast device"}, "hlc": "1800172800000:0:fast"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "edited after seeing it"}, "hlc": "1800172800000:1:a"}
+  ],
+  "expected": {"rows": {"notes": {"n1": {"title": {"text": "edited after seeing it"}}}}}
+}

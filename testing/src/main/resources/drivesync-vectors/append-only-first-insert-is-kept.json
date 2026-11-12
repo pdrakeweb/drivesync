@@ -1,0 +1,10 @@
+{
+  "name": "append-only-first-insert-is-kept",
+  "description": "An append-only row is never edited: a later write to a column it already has is ignored, on every device.",
+  "tables": [{"name": "log", "mergeClass": "APPEND_ONLY"}],
+  "changes": [
+    {"table": "log", "row": "a-1", "column": "event", "value": {"text": "original"}, "hlc": "1000:0:a"},
+    {"table": "log", "row": "a-1", "column": "event", "value": {"text": "attempted edit"}, "hlc": "7000:0:b"}
+  ],
+  "expected": {"rows": {"log": {"a-1": {"event": {"text": "original"}}}}}
+}

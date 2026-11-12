@@ -70,7 +70,8 @@ Sources: <https://github.com/CharlieTap/synk> · <https://github.com/hamadawan/g
 - **LWW_FIELDS:** each column takes the value with the highest HLC. Ties can't happen (HLCs include
   the replicaId). Values that must change together (an ordered list, a structured blob) live in one
   column.
-- **APPEND_ONLY:** rows are inserted once; the only later change is a tombstone. Inserts from
+- **APPEND_ONLY:** rows are inserted once, all columns under one timestamp; the only later change
+  is a tombstone. If two devices ever insert the same id, the earlier insert is kept whole. Inserts from
   different devices both survive.
 - **Deletes win:** a tombstone beats any edit to that row, earlier or concurrent. Restoring creates
   a new row with a new id. Ids are never reused.

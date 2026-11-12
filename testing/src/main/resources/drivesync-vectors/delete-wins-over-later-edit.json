@@ -1,0 +1,12 @@
+{
+  "name": "delete-wins-over-later-edit",
+  "description": "A tombstone beats every edit to the row: earlier, concurrent, and later by timestamp.",
+  "tables": [{"name": "notes", "mergeClass": "LWW_FIELDS"}],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "created"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "delete": true, "hlc": "2000:0:a"},
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "edited elsewhere, later"}, "hlc": "9000:0:b"},
+    {"table": "notes", "row": "n2", "column": "title", "value": {"text": "untouched"}, "hlc": "1500:0:b"}
+  ],
+  "expected": {"rows": {"notes": {"n2": {"title": {"text": "untouched"}}}}, "deleted": ["notes/n1"]}
+}

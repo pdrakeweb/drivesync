@@ -1,0 +1,15 @@
+{
+  "name": "child-orphaned-when-parent-deleted",
+  "description": "One device deletes a parent while another adds a child to it. The child is neither shown nor dropped: it is reported as orphaned and the app decides.",
+  "tables": [
+    {"name": "notes", "mergeClass": "LWW_FIELDS"},
+    {"name": "items", "mergeClass": "LWW_FIELDS", "parents": [{"column": "note_id", "table": "notes"}]}
+  ],
+  "changes": [
+    {"table": "notes", "row": "n1", "column": "title", "value": {"text": "parent"}, "hlc": "1000:0:a"},
+    {"table": "notes", "row": "n1", "delete": true, "hlc": "2000:0:a"},
+    {"table": "items", "row": "i1", "column": "note_id", "value": {"text": "n1"}, "hlc": "2100:0:b"},
+    {"table": "items", "row": "i1", "column": "text", "value": {"text": "added while the parent was being deleted"}, "hlc": "2100:1:b"}
+  ],
+  "expected": {"rows": {"notes": {}, "items": {}}, "deleted": ["notes/n1"], "orphaned": ["items/i1"]}
+}

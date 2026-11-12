@@ -13,3 +13,7 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-006 | Repository and library name `drivesync`; repository public from the start; Maven namespace decided before 0.1.0. | Pete (picked) "drivesync + llm-tiers", "Public from the start" |
 | D-007 | First consumer: NextRep (`pdrakeweb/nextrep`). | Pete (words) |
 | D-008 | Write our own clock and merge core; do not adopt Synk. Measured in ADR-0002 (Synk resurrects deleted rows and loses edits when a row id is created on two devices, diverges under clock skew, drops late-added columns). | Proposed (S0 spike, 11 Nov 2026) |
+| D-009 | Maven namespace and Kotlin package root: `io.github.pdrakeweb` (artifacts `io.github.pdrakeweb:drivesync-<module>`, packages `io.github.pdrakeweb.drivesync.*`). | Pete (picked), 11 Nov 2026 |
+| D-010 | Additions to `LocalStore` beyond ARCHITECTURE §2: `pendingCount()` (C-3), `highestSchemaSeen()`/`noteSchemaSeen()` (schema rule survives restart), and `saveCursor` never moves backwards. | Proposed (S1) |
+| D-011 | Additions to the app-facing surface beyond DESIGN §9: `held` and `orphaned` row lists, `ReplicaInfo.batchesToFetch`, errors `ReplicaStateBehind` and `Unexpected`, fix `ResetThisDevice`. Names are open. | Proposed (S1 review) |
+| D-012 | `APPEND_ONLY` inserts are whole-row (one timestamp); on an id collision the earliest insert wins whole. | Proposed (S1 review) |

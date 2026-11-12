@@ -1,0 +1,13 @@
+{
+  "name": "append-only-same-id-first-insert-wins-whole",
+  "description": "Two devices insert an append-only row under the same id (ids should be unique, but a collision must still converge). The insert with the lower timestamp is kept whole; the two inserts are never mixed column by column.",
+  "tables": [{"name": "log", "mergeClass": "APPEND_ONLY"}],
+  "changes": [
+    {"table": "log", "row": "same", "column": "event", "value": {"text": "from a"}, "hlc": "1000:0:a"},
+    {"table": "log", "row": "same", "column": "reps", "value": {"int": 8}, "hlc": "1000:0:a"},
+    {"table": "log", "row": "same", "column": "event", "value": {"text": "from b"}, "hlc": "1000:0:b"},
+    {"table": "log", "row": "same", "column": "note", "value": {"text": "only b has this column"}, "hlc": "1000:0:b"},
+    {"table": "log", "row": "same", "column": "event", "value": {"text": "from c, later"}, "hlc": "900:5:c"}
+  ],
+  "expected": {"rows": {"log": {"same": {"event": {"text": "from c, later"}}}}}
+}

@@ -1,0 +1,14 @@
+# One vector file per line. See README.md for the format.
+lww-fields-highest-clock-wins.json
+lww-fields-columns-merge-independently.json
+lww-fields-tie-broken-by-replica-id.json
+delete-wins-over-later-edit.json
+delete-wins-over-recreation.json
+append-only-both-inserts-survive.json
+append-only-first-insert-is-kept.json
+lww-row-whole-row-replaced.json
+clock-skew-later-edit-wins.json
+child-held-until-parent-arrives.json
+child-orphaned-when-parent-deleted.json
+unknown-columns-are-kept.json
+append-only-same-id-first-insert-wins-whole.json
