@@ -90,9 +90,9 @@ Recorded run: `RESULTS-03-setup-features.txt` (12 Nov 2026, 24 checks, all PASS)
   has not been run: it needs a raw access token, which the journey never exposes.
 - Scanning a join QR code with a camera. The sample has a scan button (Google's code scanner); the
   journey types the code instead, because an emulator camera has nothing to point at.
-- Saving the passphrase to Google Password Manager and having it filled on another device: the
-  save sheet appears and was accepted once; Google then asked a separate consent question
-  ("Autofill with Google"), which is the account owner's to answer. Not completed.
+- A passphrase saved in Google Password Manager being offered on a *different* device. Save, wipe,
+  fill and join were shown on one emulator (`03-saved-passphrase-offered.png`); a second emulator
+  on the same account was offered nothing. See `docs/PASSPHRASE_AND_PASSWORD_MANAGERS.md`.
 - Android 8.0 and 8.1 (API 26, 27): they ship an old Bouncy Castle under the same package name as the one used for Argon2id; this must be run on such an image before those versions are claimed.
 - Background sync firing on its own schedule (WorkManager is covered by Robolectric tests in
   `:android`; the journey triggers cycles explicitly so that it is deterministic).

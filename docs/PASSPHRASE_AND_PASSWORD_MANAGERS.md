@@ -55,7 +55,7 @@ if (setup.create(passphrase.toCharArray()) == SyncSetup.Result.Ready) {
 | | Result |
 |---|---|
 | Offer to save on submit | **Yes.** "Save password to Google Password Manager", username "Sync passphrase" |
-| Offer the saved passphrase on another device | The password manager returned a fill entry for the form; choosing it was not tried (it needs an entry to have been saved by a person) |
+| Offer the saved passphrase when joining | **Yes** on the device that saved it, after a wipe: "Use your saved password for drivesync sample?", filled and accepted. Not seen on a second emulator (see the end of this page) |
 | Suggest a strong passphrase | **No.** Nothing was offered for the field, marked as a new password or not |
 | A password field with no username beside it | Ignored entirely: no fill, no save |
 
@@ -128,8 +128,26 @@ device added later needs the new one. Show it with the same two fields (the fixe
 new-password field) so the password manager updates the entry it already has, and report the
 submission the same way. It does not lock out someone who already has the key.
 
-## Status of the save-then-fill round trip
+## Status of the save-then-fill round trip (12 Nov 2026)
 
-Saving was taken as far as Google's sheet and its Continue button. Google then showed a second,
-separate consent screen ("Autofill with Google") for the account, which was left for the account
-owner. Having a saved passphrase filled in on another device is therefore still not shown.
+Shown on one Android 17 emulator, pressing the real controls:
+
+1. First device: **Suggest one**, **Turn on**, then **Save** on Google's sheet.
+2. The app's data was wiped and the sync folder put back, making it a later device.
+3. Touching the passphrase field brought up Google's sheet "Use your saved password for
+   drivesync sample?" with the entry "Sync passphrase" (`tests/03-saved-passphrase-offered.png`).
+4. Choosing it filled the field; **Turn on** joined, and the note arrived.
+
+What it took to get there, and what was not shown:
+
+- **The first save on an account is not one tap.** Google asked for consent to "Autofill with
+  Google", then for the screen-lock PIN of another device on the account (its passwords are
+  encrypted on the device). The account owner did both. Later saves were a single **Save**.
+- **An interrupted first save left a stale entry.** The first attempt stopped at the consent
+  screen; the entry filled later was not the passphrase in storage, and the app correctly said
+  "That passphrase does not match". A clean save replaced it. An app cannot prevent this; the
+  wrong-passphrase message is what makes it recoverable.
+- **A second emulator on the same account was offered nothing**, several minutes after the save,
+  although it had been signed in and unlocked. Whether that is a delay in Google's own sync or
+  something about emulators was not established. A saved passphrase arriving on a different
+  device is therefore still unshown.
