@@ -33,6 +33,7 @@ CHROME='drivesync sample|Synced|Not synced yet|Syncing|Sync now|New note|Add|Ren
 CHROME="$CHROME"'|.*waiting to upload|Nothing waiting to upload|End-to-end encrypted|Add another device'
 CHROME="$CHROME"'|Sync is off on this device|Choose a passphrase.*|Passphrase|Turn on|Working'
 CHROME="$CHROME"'|Storage: .*|Use Google Drive|Google Drive was not connected.|Could not reach.*'
+CHROME="$CHROME"'|Saved in your password manager as|Sync passphrase|Suggest one'
 CHROME="$CHROME"'|.*will upload once sync is on|That passphrase does not match.*|Use at least 8 characters.'
 
 # app <serial> [extras as one string, quoted for the device shell]

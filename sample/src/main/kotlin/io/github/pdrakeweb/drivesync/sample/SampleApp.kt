@@ -200,8 +200,10 @@ class SampleApp : Application() {
     }
 
     /** Turns sync on with a passphrase: creates the key on the first device, opens it on later ones. */
-    suspend fun turnOn(passphrase: String): SyncSetup.Result {
+    suspend fun turnOn(passphrase: String, onAccepted: () -> Unit = {}): SyncSetup.Result {
         val result = setup.create(passphrase.toCharArray())
+        // Called while the passphrase form is still on screen, before the key state hides it.
+        if (result == SyncSetup.Result.Ready) onAccepted()
         refreshKeyState()
         if (result == SyncSetup.Result.Ready) engine.sync()
         return result
