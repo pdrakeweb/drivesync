@@ -12,3 +12,4 @@ Append-only. Source key: **Pete (words)** quoted, **Pete (picked)** chose an off
 | D-005 | End-to-end encryption with a passphrase-wrapped data key; lost passphrase = cloud copy unrecoverable. | Proposed (NextRep Q-3) |
 | D-006 | Repository and library name `drivesync`; repository public from the start; Maven namespace decided before 0.1.0. | Pete (picked) "drivesync + llm-tiers", "Public from the start" |
 | D-007 | First consumer: NextRep (`pdrakeweb/nextrep`). | Pete (words) |
+| D-008 | Write our own clock and merge core; do not adopt Synk. Measured in ADR-0002 (Synk resurrects deleted rows and loses edits when a row id is created on two devices, diverges under clock skew, drops late-added columns). | Proposed (S0 spike, 11 Nov 2026) |
