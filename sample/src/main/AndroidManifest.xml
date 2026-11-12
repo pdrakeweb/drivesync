@@ -5,6 +5,9 @@
         sync identity, to a new phone. Two devices would then write as the same replica. drivesync
         detects that (ReplicaStateBehind) but cannot repair it; the cloud copy is the backup.
     -->
+    <!-- Needed to reach Google Drive. A normal permission: granted at install, no prompt. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".SampleApp"
         android:allowBackup="false"

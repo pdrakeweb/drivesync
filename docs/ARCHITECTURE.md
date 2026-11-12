@@ -98,6 +98,23 @@ interface KeyManager {
   built yet.
 - **Scheduling (S2).** `SyncScheduler` wraps WorkManager: unique periodic work, debounced on-demand
   work, sync on app foreground. The worker finds the engine through `DriveSyncWork.setEngineProvider`.
+- **Encryption (S3).** `PassphraseKeyManager` in `:crypto`: one random 256-bit data key; every object
+  sealed with XChaCha20-Poly1305 (Tink), random nonce, the object path as associated data, one
+  version byte in front. `meta.json` holds the data key wrapped under an Argon2id-derived key
+  (Bouncy Castle; default 64 MiB, 3 passes; measured 1.35 s on the API 37 emulator). Costs read from
+  `meta.json` are bounded before use. A failed unlock leaves the device with no key.
+- **`KeyManager.fingerprint`** is an addition to the interface (D-014, proposed). Batch names carry
+  a keyed fingerprint (HMAC-SHA-256 under a key derived from the data key) instead of a plain hash of
+  the plaintext, which would have let anyone with storage access confirm a guess at a batch (C-2).
+- **Setup.** `SyncSetup` creates `meta.json` on the first device and opens it with the passphrase on
+  later ones; a device that loses the creation race adopts the winner. A join code
+  (`exportJoinCode` / `importJoinCode`) carries the key itself; `JoinQr` draws it. Scanning a QR code
+  is left to the app.
+- **Key storage.** `KeystoreKeyStorage` wraps the data key with an Android Keystore key and keeps it
+  in the no-backup directory.
+- **Drive backend (S3).** Lists the whole app-data space and filters by prefix on the device,
+  rather than rely on how `name contains` treats slashes; exact-name queries for single objects.
+  Among files sharing a name the oldest is the object. Not yet run against real Drive.
 - **Paths are relative** to the sync root `drivesync/v1/`; a backend applies the root.
 - **Deferred:** the conflict log (S4), `meta.json` and real encryption (S3). Until S3, tests use
   `InsecureTestKeyManager`, which is a scramble, not encryption.

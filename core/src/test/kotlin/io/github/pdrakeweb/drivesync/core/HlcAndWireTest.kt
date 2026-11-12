@@ -104,12 +104,12 @@ class HlcAndWireTest {
         val one = WireCodec.encodeBatch(batch())
         val two = WireCodec.encodeBatch(batch())
         assertArrayEquals(one, two)
-        val path = Paths.batch(a, 7, one)
-        assertEquals(path, Paths.batch(a, 7, two))
+        val path = Paths.batch(a, 7, "0123456789abcdef")
+        assertThrows(IllegalArgumentException::class.java) { Paths.batch(a, 7, "not-a-tag") }
         assertTrue(Regex("batches/a/000000000007-[0-9a-f]{16}\\.bin").matches(path), path)
         assertEquals(7L, Paths.parseBatchSeq(a, path))
         assertNull(Paths.parseBatchSeq(b, path))
-        assertNotEquals(path, Paths.batch(a, 7, WireCodec.encodeBatch(batch(seq = 8))))
+        assertNotEquals(path, Paths.batch(a, 7, "fedcba9876543210"))
     }
 
     @Serializable

@@ -1,8 +1,14 @@
 == fresh installs
 PASS  empty state says it is empty (A)
+PASS  sync is off before a passphrase is set (A)
+== 0. passphrase: set on A, wrong one refused on B, right one joins
+PASS  a change made before setup is counted, not lost (A)
+PASS  A reports end-to-end encryption
+PASS  the earlier change uploaded (A)
+PASS  B refuses a wrong passphrase and says why
+PASS  B shows nothing without the key
+PASS  B joined with the right passphrase
 == 1. a note written on A reaches B
-PASS  pending change is counted and visible (A)
-PASS  pending cleared after sync (A)
 PASS  B shows the note from A
 == 2. both devices edit while apart
 PASS  A has all three
@@ -10,11 +16,15 @@ PASS  B has all three
 == 3. delete on one device beats a concurrent edit on the other
 PASS  A: deleted note stays deleted
 PASS  B: deleted note stays deleted
-== 4. the app survives being killed with unsynced changes
+== 4. killed with unsynced changes; the key survives the restart
+PASS  no passphrase needed again after a restart (A)
 PASS  B received the change made before the kill
 PASS  both end in the synced state (B)
-== storage: names carry no content
-PASS  every stored file name is ids, numbers and hashes only
+== storage: invariant C-2
+PASS  file names are ids, numbers and tags only
+PASS  stored files were inspected
+PASS  no note text, table or column name in any stored file
+PASS  meta.json holds only the wrapped key and derivation parameters
 PASS  no crash on emulator-5556
 PASS  no crash on emulator-5558
 

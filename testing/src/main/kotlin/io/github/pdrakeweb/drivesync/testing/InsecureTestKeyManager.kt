@@ -45,6 +45,13 @@ public class InsecureTestKeyManager(public var keyState: KeyState = KeyState.Rea
         return plain
     }
 
+    override suspend fun fingerprint(plain: ByteArray): String {
+        requireReady()
+        val a = plain.contentHashCode()
+        val b = plain.reversedArray().contentHashCode() xor 0x5EED
+        return "%08x%08x".format(a, b)
+    }
+
     private fun requireReady() {
         if (keyState != KeyState.Ready) throw SyncException(SyncError.KeyMissing)
     }
