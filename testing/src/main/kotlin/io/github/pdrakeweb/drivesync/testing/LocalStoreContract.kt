@@ -9,13 +9,12 @@ import io.github.pdrakeweb.drivesync.core.ReplicaId
 import io.github.pdrakeweb.drivesync.core.TableSpec
 import io.github.pdrakeweb.drivesync.core.Value
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 
 /**
- * The behaviour the sync engine relies on from every [LocalStore]. Each store's test module
- * extends this class.
+ * The behaviour the sync engine relies on from every [LocalStore]. Framework-neutral, because Android
+ * stores are tested under JUnit 4 (Robolectric) and JVM stores under JUnit 5: a test class extends
+ * this, and runs each entry of [checks] as one test.
+ * A failed check throws [AssertionError].
  */
 public abstract class LocalStoreContract {
     protected val registry: MergeRegistry = MergeRegistry(
@@ -31,40 +30,37 @@ public abstract class LocalStoreContract {
 
     private fun text(s: String) = Value.Text(s)
 
-    @Test
     public fun `outbox holds local writes in timestamp order and counts them`(): Unit = runBlocking {
         val store = newStore()
         assertEquals(0, store.pendingCount())
         localWrite(store, "notes", "n1", mapOf("title" to text("a"), "body" to text("b")))
-        localWrite(store, "notes", "n2", mapOf("title" to text("c")))
-        assertEquals(3, store.pendingCount())
+        localWrite(store, "notes", "n2", mapOf("title" to text("c"), "body" to text("d")))
+        assertEquals(4, store.pendingCount())
         val drained = store.drainOutbox(100)
-        assertEquals(3, drained.size)
+        assertEquals(4, drained.size)
         assertEquals(drained.sortedBy { it.hlc }, drained)
         assertEquals(drained.size, drained.map { it.hlc }.distinct().size, "field writes get distinct timestamps")
     }
 
-    @Test
     public fun `a drained set is stable until acknowledged`(): Unit = runBlocking {
         val store = newStore()
-        repeat(5) { localWrite(store, "notes", "n$it", mapOf("title" to text("v$it"))) }
+        repeat(5) { localWrite(store, "notes", "n$it", mapOf("title" to text("v$it"), "body" to text("b"))) }
         val first = store.drainOutbox(3)
         assertEquals(3, first.size)
-        repeat(4) { localWrite(store, "notes", "m$it", mapOf("title" to text("later"))) }
+        repeat(4) { localWrite(store, "notes", "m$it", mapOf("title" to text("later"), "body" to text("b"))) }
         assertEquals(first, store.drainOutbox(3), "same set after more writes")
         assertEquals(first, store.drainOutbox(100), "same set even when asked for more")
 
         store.ackOutbox(first.maxOf { it.hlc.time })
-        assertEquals(6, store.pendingCount())
+        assertEquals(15, store.pendingCount())
         val second = store.drainOutbox(100)
-        assertEquals(6, second.size)
+        assertEquals(15, second.size)
         assertTrue(second.none { it in first })
         store.ackOutbox(second.maxOf { it.hlc.time })
         assertEquals(emptyList<Change>(), store.drainOutbox(100))
         assertEquals(0, store.pendingCount())
     }
 
-    @Test
     public fun `a whole-row write shares one timestamp and is never split`(): Unit = runBlocking {
         val store = newStore()
         localWrite(store, "settings", "s", mapOf("a" to text("1"), "b" to text("2"), "c" to text("3")))
@@ -73,7 +69,6 @@ public abstract class LocalStoreContract {
         assertEquals(1, drained.map { it.hlc }.distinct().size)
     }
 
-    @Test
     public fun `remote changes are merged but never enter the outbox`(): Unit = runBlocking {
         val store = newStore()
         val remote = Change("notes", "n1", "title", text("remote"), Hlc.of(5_000_000_000_000, 0, ReplicaId("other")))
@@ -84,7 +79,6 @@ public abstract class LocalStoreContract {
         assertTrue(remote in store.snapshot().toList())
     }
 
-    @Test
     public fun `a local write after a remote change from a fast clock still wins`(): Unit = runBlocking {
         val store = newStore()
         val future = Hlc.of(5_000_000_000_000, 7, ReplicaId("other"))
@@ -94,7 +88,6 @@ public abstract class LocalStoreContract {
         assertTrue(mine.hlc > future, "the store's clock absorbed the remote timestamp")
     }
 
-    @Test
     public fun `cursors are saved per replica`(): Unit = runBlocking {
         val store = newStore()
         assertEquals(emptyMap<ReplicaId, Long>(), store.cursors())
@@ -104,7 +97,6 @@ public abstract class LocalStoreContract {
         assertEquals(mapOf(ReplicaId("a") to 4L, ReplicaId("b") to 1L), store.cursors())
     }
 
-    @Test
     public fun `cursors and the schema floor never move backwards`(): Unit = runBlocking {
         val store = newStore()
         store.saveCursor(ReplicaId("a"), 5)
@@ -114,5 +106,29 @@ public abstract class LocalStoreContract {
         store.noteSchemaSeen(3)
         store.noteSchemaSeen(1)
         assertEquals(3, store.highestSchemaSeen())
+    }
+
+    /** Every check, by name. Run each as its own test. */
+    public val checks: Map<String, () -> Unit> = linkedMapOf(
+        "outbox holds local writes in timestamp order and counts them" to
+            { `outbox holds local writes in timestamp order and counts them`() },
+        "a drained set is stable until acknowledged" to { `a drained set is stable until acknowledged`() },
+        "a whole-row write shares one timestamp and is never split" to
+            { `a whole-row write shares one timestamp and is never split`() },
+        "remote changes are merged but never enter the outbox" to
+            { `remote changes are merged but never enter the outbox`() },
+        "a local write after a remote change from a fast clock still wins" to
+            { `a local write after a remote change from a fast clock still wins`() },
+        "cursors are saved per replica" to { `cursors are saved per replica`() },
+        "cursors and the schema floor never move backwards" to
+            { `cursors and the schema floor never move backwards`() },
+    )
+
+    private fun assertEquals(expected: Any?, actual: Any?, message: String = "") {
+        if (expected != actual) throw AssertionError("$message expected <$expected> but was <$actual>".trim())
+    }
+
+    private fun assertTrue(condition: Boolean, message: String = "expected true") {
+        if (!condition) throw AssertionError(message)
     }
 }

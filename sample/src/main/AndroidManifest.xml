@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="drivesync sample" />
+    <!--
+        allowBackup is off on purpose: Android's automatic backup would copy the database, with its
+        sync identity, to a new phone. Two devices would then write as the same replica. drivesync
+        detects that (ReplicaStateBehind) but cannot repair it; the cloud copy is the backup.
+    -->
+    <application
+        android:name=".SampleApp"
+        android:allowBackup="false"
+        android:label="drivesync sample"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

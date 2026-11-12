@@ -6,7 +6,9 @@ import io.github.pdrakeweb.drivesync.core.ReplicaId
 import io.github.pdrakeweb.drivesync.core.Value
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestFactory
 
 class SimulationTest {
     private val runs = System.getProperty("drivesync.simRuns", "500").toInt()
@@ -64,4 +66,7 @@ class InMemoryLocalStoreContractTest : LocalStoreContract() {
     override fun localWrite(store: LocalStore, table: String, rowId: String, columns: Map<String, Value>) {
         (store as InMemoryLocalStore).write(table, rowId, columns)
     }
+
+    @TestFactory
+    fun contract(): List<DynamicTest> = checks.map { (name, check) -> DynamicTest.dynamicTest(name) { check() } }
 }

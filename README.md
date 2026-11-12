@@ -3,7 +3,7 @@
 Local-first sync for Android apps through storage the user owns. Every device works offline;
 changes merge deterministically; the cloud copy is end-to-end encrypted; there is no server.
 
-**Status:** in development, not released. S0 (merge-core decision) and S1 (core, local-folder backend, simulator, test vectors) are built; see `docs/ROADMAP.md`.
+**Status:** in development, not released. S0 (merge-core decision), S1 (core, local-folder backend, simulator, test vectors) and S2 (Room adapter, WorkManager scheduler, sample app) are built; see `docs/ROADMAP.md`.
 
 Build and test: `./gradlew build` (JDK 17+). The long simulation: `./gradlew :testing:test -PsimRuns=10000`.
 
