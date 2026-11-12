@@ -1,0 +1,32 @@
+== fresh installs
+PASS  empty state says it is empty (A)
+PASS  sync is off before a passphrase is set (A)
+PASS  storage is Google Drive (A)
+PASS  storage is Google Drive (B)
+== 0. passphrase: set on A, wrong one refused on B, right one joins
+PASS  a change made before setup is counted, not lost (A)
+PASS  A reports end-to-end encryption
+PASS  the earlier change uploaded (A)
+PASS  B refuses a wrong passphrase and says why
+PASS  B shows nothing without the key
+PASS  B joined with the right passphrase
+== 1. a note written on A reaches B
+PASS  B shows the note from A
+== 2. both devices edit while apart
+PASS  A has all three
+PASS  B has all three
+== 3. delete on one device beats a concurrent edit on the other
+PASS  A: deleted note stays deleted
+PASS  B: deleted note stays deleted
+== 4. killed with unsynced changes; the key survives the restart
+PASS  no passphrase needed again after a restart (A)
+PASS  B received the change made before the kill
+PASS  both end in the synced state (B)
+== storage: invariant C-2
+PASS  objects really are in Google Drive
+PASS  file names in Drive are ids, numbers and tags only
+SKIP  content of stored files not inspected (not reachable from outside the app; covered by the local-folder run)
+PASS  no crash on emulator-5556
+PASS  no crash on emulator-5558
+
+RESULT: PASS
