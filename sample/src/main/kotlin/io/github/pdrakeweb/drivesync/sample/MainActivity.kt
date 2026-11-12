@@ -2,14 +2,12 @@ package io.github.pdrakeweb.drivesync.sample
 
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.app.Activity
 import android.os.Bundle
+import android.view.autofill.AutofillManager
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.VisualTransformation
-import io.github.pdrakeweb.drivesync.android.PassphraseVault
 import android.util.Log
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 // Switching storage replaces the engine; rebuild the screen around the new one.
                 val sync by app.sync.collectAsStateWithLifecycle()
                 key(sync) {
-                    NotesScreen(app, onUseDrive = { connectDrive() }, onSubmitPassphrase = ::submitPassphrase, onUseSavedPassphrase = ::useSavedPassphrase)
+                    NotesScreen(app, onUseDrive = { connectDrive() }, onSubmitPassphrase = ::submitPassphrase)
                 }
             }
         }
@@ -103,43 +101,19 @@ class MainActivity : ComponentActivity() {
      * Asks for permission to use the app's own folder in Google Drive. The first time, Google
      * shows a consent screen; after that the answer is remembered and nothing is shown.
      */
-    private val vault = PassphraseVault()
-
     /**
-     * Turns sync on, then offers to keep the passphrase in the password manager. Runs in the
-     * activity's scope, not the form's: the form leaves the screen the moment sync is on, and
-     * work started from it would be cancelled half way.
+     * Turns sync on. Runs in the activity's scope, not the form's: the form leaves the screen the
+     * moment sync is on, and work started from it would be cancelled half way.
      *
-     * The offer comes only after the passphrase worked, so a mistyped one is never saved.
+     * When the passphrase has been accepted, the autofill framework is told the form was submitted
+     * (`commit`), while the field is still on screen. That is what makes the person's password
+     * manager offer to save it. A passphrase that was refused is never committed.
      */
-    private fun submitPassphrase(entered: String, offerToSave: Boolean) {
+    private fun submitPassphrase(entered: String) {
         lifecycleScope.launch {
             workingOnSetup.value = true
-            vaultMessage.value = null
-            turnOn(app, entered)
+            turnOn(app, entered) { getSystemService(AutofillManager::class.java)?.commit() }
             workingOnSetup.value = false
-            if (offerToSave && lastSetupResult.value == SyncSetup.Result.Ready) {
-                vaultMessage.value = when (val saved = vault.save(this@MainActivity, entered)) {
-                    PassphraseVault.SaveResult.Saved -> "Passphrase saved to your password manager."
-                    PassphraseVault.SaveResult.Declined ->
-                        "Passphrase not saved. Keep it somewhere safe: without it the synced copy cannot be read."
-                    is PassphraseVault.SaveResult.Unavailable ->
-                        "No password manager available (${saved.reason}). Keep the passphrase somewhere safe."
-                }
-            }
-        }
-    }
-
-    private fun useSavedPassphrase() {
-        lifecycleScope.launch {
-            vaultMessage.value = null
-            when (val fetched = vault.fetch(this@MainActivity)) {
-                // Already in the password manager: no need to offer to save it again.
-                is PassphraseVault.FetchResult.Found -> submitPassphrase(fetched.passphrase, offerToSave = false)
-                PassphraseVault.FetchResult.None -> vaultMessage.value = "No saved passphrase was chosen."
-                is PassphraseVault.FetchResult.Unavailable ->
-                    vaultMessage.value = "No password manager available (${fetched.reason})."
-            }
         }
     }
 
@@ -209,14 +183,14 @@ class MainActivity : ComponentActivity() {
 private val lastSetupResult = mutableStateOf<SyncSetup.Result?>(null)
 private val setupError = mutableStateOf<String?>(null)
 private val driveMessage = mutableStateOf<String?>(null)
-private val vaultMessage = mutableStateOf<String?>(null)
 private val workingOnSetup = mutableStateOf(false)
+private const val ENTRY_NAME = "Sync passphrase"
 
 /** Turns sync on and records the outcome for the screen; storage failures are shown, never thrown. */
-private suspend fun turnOn(app: SampleApp, passphrase: String) {
+private suspend fun turnOn(app: SampleApp, passphrase: String, onAccepted: () -> Unit = {}) {
     setupError.value = null
     try {
-        lastSetupResult.value = app.turnOn(passphrase)
+        lastSetupResult.value = app.turnOn(passphrase, onAccepted)
     } catch (e: SyncException) {
         lastSetupResult.value = null
         setupError.value = "Could not reach storage: ${e.error}"
@@ -243,8 +217,7 @@ private fun describe(state: SyncState): String = when (state) {
 private fun NotesScreen(
     app: SampleApp,
     onUseDrive: () -> Unit,
-    onSubmitPassphrase: (passphrase: String, offerToSave: Boolean) -> Unit,
-    onUseSavedPassphrase: () -> Unit,
+    onSubmitPassphrase: (passphrase: String) -> Unit,
 ) {
     val backend = app.sync.collectAsStateWithLifecycle().value.backend
     val notes by app.database.notes().observe().collectAsStateWithLifecycle(emptyList())
@@ -267,7 +240,6 @@ private fun NotesScreen(
                         Text(describe(state))
                         Text(if (pending == 0) "Nothing waiting to upload" else "$pending changes waiting to upload", style = MaterialTheme.typography.bodySmall)
                         Text("End-to-end encrypted", style = MaterialTheme.typography.bodySmall)
-                        vaultMessage.value?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
                     Button(onClick = { scope.launch { app.engine.sync() } }) { Text("Sync now") }
                 }
@@ -281,7 +253,7 @@ private fun NotesScreen(
                     if (backend == Backend.LocalFolder) TextButton(onClick = onUseDrive) { Text("Use Google Drive") }
                 }
                 driveMessage.value?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                TurnOnSync(onSubmitPassphrase, onUseSavedPassphrase)
+                TurnOnSync(app, onSubmitPassphrase)
                 if (pending > 0) Text("$pending changes will upload once sync is on", style = MaterialTheme.typography.bodySmall)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -350,12 +322,21 @@ private fun NotesScreen(
 }
 
 @Composable
-private fun TurnOnSync(submit: (passphrase: String, offerToSave: Boolean) -> Unit, useSaved: () -> Unit) {
+private fun TurnOnSync(app: SampleApp, submit: (passphrase: String) -> Unit) {
     var passphrase by remember { mutableStateOf("") }
     val working by workingOnSetup
-    // A suggested passphrase is shown in the clear: the person has never seen it before.
-    var visible by remember { mutableStateOf(false) }
     val result by lastSetupResult
+    // Has sync been set up in this storage already? That decides what the field is to the
+    // password manager: a place to create a passphrase (it offers to suggest and then save one),
+    // or a place to enter the existing one (it offers the saved one). Unknown counts as existing.
+    val backend = app.sync.collectAsStateWithLifecycle().value
+    val firstDevice by produceState(initialValue = false, backend) {
+        value = try {
+            app.setup.status() == SyncSetup.Status.NotSetUp
+        } catch (e: SyncException) {
+            false
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Sync is off on this device")
@@ -364,40 +345,33 @@ private fun TurnOnSync(submit: (passphrase: String, offerToSave: Boolean) -> Uni
                 "It encrypts your notes; if you lose it, the synced copy cannot be read.",
             style = MaterialTheme.typography.bodySmall,
         )
+        // A password manager files an entry under a name, and tends to ignore a password field that
+        // has no username beside it. This fixed, read-only field supplies one.
+        OutlinedTextField(
+            ENTRY_NAME, {},
+            Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
+            label = { Text("Saved in your password manager as") },
+            readOnly = true,
+            singleLine = true,
+        )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 passphrase, { passphrase = it },
-                // Tells autofill services this is a password field, so they offer to fill it.
-                Modifier.weight(1f).semantics { contentType = ContentType.Password },
+                Modifier.weight(1f).semantics {
+                    contentType = if (firstDevice) ContentType.NewPassword else ContentType.Password
+                },
                 label = { Text("Passphrase") },
                 singleLine = true,
-                visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+                visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             Button(
                 enabled = passphrase.length >= 8 && !working,
-                onClick = {
-                    val entered = passphrase
-                    passphrase = ""
-                    visible = false
-                    submit(entered, true)
-                },
+                // The field keeps its text until the form goes away: the password manager reads
+                // it when the submission is committed.
+                onClick = { submit(passphrase) },
             ) { Text(if (working) "Working" else "Turn on") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(
-                enabled = !working,
-                onClick = {
-                    passphrase = PassphraseVault.suggest()
-                    visible = true
-                },
-            ) { Text("Suggest one") }
-            TextButton(
-                enabled = !working,
-                onClick = useSaved,
-            ) { Text("Use saved passphrase") }
-        }
-        vaultMessage.value?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         when (result) {
             SyncSetup.Result.WrongPassphrase ->
                 Text("That passphrase does not match the one used on your other device.", color = MaterialTheme.colorScheme.error)
