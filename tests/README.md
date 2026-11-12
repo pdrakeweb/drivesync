@@ -46,9 +46,38 @@ every file has exactly one writer, merging two copies of the folder is a plain c
 Recorded run: `RESULTS-01-two-emulators.txt` (11 Nov 2026, 22 checks, all PASS), final screen of device B in
 `01-device-b-final.png`.
 
+## 02 · Two emulators sync through a real Google Drive account
+
+`tests/journey-two-emulators.sh <serial-a> <serial-b> drive <google-account>`
+
+The same steps and checks as scenario 01, with Google Drive's app-data folder as the storage and
+nothing carried between the devices. Each run uses a fresh root name inside the app-data folder,
+so earlier runs never interfere.
+
+One-time setup, by a person:
+
+1. A Google Cloud project with the Drive API enabled, a consent screen in Testing mode with the
+   test account listed under test users, and an OAuth client of type **Android** for package
+   `io.github.pdrakeweb.drivesync.sample` and the SHA-1 of the certificate that signs the debug
+   build (`keytool -list -v -keystore ~/.android/debug.keystore -storepass android`). There is no
+   client secret and nothing to put in the repository.
+2. On each emulator: sign in to the test Google account (Settings, Accounts), open the sample, tap
+   **Use Google Drive**, and approve the consent screen once. An emulator keeps its accounts
+   between runs. A second emulator can be made by copying the first one's `.avd` folder while both
+   are shut down, which copies the signed-in account too.
+
+The account is passed on the command line so that Google does not show its account chooser, which
+a script cannot answer; it is not stored anywhere. What differs from scenario 01: stored objects
+are listed by the app itself (the app-data folder cannot be read from outside it), so file names
+are checked but file contents are not; the local-folder run covers contents.
+
+Recorded run: `RESULTS-02-google-drive.txt` (11 Nov 2026, 22 checks, all PASS), final screen of
+device B in `02-device-b-drive-final.png`.
+
 ## Not yet covered on devices
 
-- **BLOCKED:** sync through Google Drive. Needs an Android OAuth client for package `io.github.pdrakeweb.drivesync.sample` (with the debug signing certificate SHA-1) in a Google Cloud project with the Drive API enabled, and a test Google account. The backend itself can be checked sooner with any access token carrying the `drive.appdata` scope: `./gradlew :backend-drive:test -PdriveToken=<token>`.
+- The `BlobStore` contract suite against real Drive (`./gradlew :backend-drive:test -PdriveToken=<token>`)
+  has not been run: it needs a raw access token, which the journey never exposes.
 - Scanning a join QR code (the sample draws one; no scanner is built).
 - Android 8.0 and 8.1 (API 26, 27): they ship an old Bouncy Castle under the same package name as the one used for Argon2id; this must be run on such an image before those versions are claimed.
 - Background sync firing on its own schedule (WorkManager is covered by Robolectric tests in

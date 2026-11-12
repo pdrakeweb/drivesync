@@ -1,5 +1,6 @@
 package io.github.pdrakeweb.drivesync.sample
 
+import android.accounts.Account
 import android.app.Application
 import android.content.Context
 import android.os.Build
@@ -80,13 +81,23 @@ class Sync(val backend: Backend, val blobs: BlobStore, val engine: SyncEngine, v
  * and signing certificate, so there is no client secret anywhere in this project.
  */
 object DriveAuth {
-    private val request = AuthorizationRequest.builder()
-        .setRequestedScopes(listOf(Scope("https://www.googleapis.com/auth/drive.appdata")))
-        .build()
+    /**
+     * When set, Google is asked about this account directly instead of showing its account chooser.
+     * Used by the test journey; a real app would remember the account the person picked.
+     */
+    @Volatile
+    var accountName: String? = null
+
+    private fun request(): AuthorizationRequest {
+        val builder = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope("https://www.googleapis.com/auth/drive.appdata")))
+        accountName?.let { builder.setAccount(Account(it, "com.google")) }
+        return builder.build()
+    }
 
     /** Asks Google Play services. The result either carries a token or needs a consent screen. */
     suspend fun authorize(context: Context): AuthorizationResult = suspendCancellableCoroutine { continuation ->
-        Identity.getAuthorizationClient(context).authorize(request)
+        Identity.getAuthorizationClient(context).authorize(request())
             .addOnSuccessListener { continuation.resume(it) }
             .addOnFailureListener { continuation.resumeWithException(it) }
     }
@@ -170,6 +181,7 @@ class SampleApp : Application() {
     fun useBackend(backend: Backend, driveRoot: String? = null) {
         prefs.edit().putString("backend", backend.name).apply {
             if (driveRoot != null) putString("driveRoot", driveRoot)
+            DriveAuth.accountName?.let { putString("driveAccount", it) }
         }.apply()
         sync.value = build(backend)
         scheduler.schedulePeriodic()
@@ -177,6 +189,7 @@ class SampleApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DriveAuth.accountName = prefs.getString("driveAccount", null)
         DriveSyncWork.setEngineProvider { engine }
         scheduler.schedulePeriodic()
         scheduler.syncOnForeground()

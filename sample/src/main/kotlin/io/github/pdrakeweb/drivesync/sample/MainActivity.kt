@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.key
-import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import io.github.pdrakeweb.drivesync.core.SyncException
 import androidx.activity.ComponentActivity
@@ -72,13 +71,23 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Receives the answer from Google's consent screen. */
-    private val consent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        val granted = try {
-            Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(result.data).accessToken != null
-        } catch (e: ApiException) {
-            false
+    private val consent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        // Ask again rather than trust the returned intent: if consent was given, this now
+        // succeeds without showing anything; if it was declined, it still needs a screen.
+        lifecycleScope.launch {
+            val granted = try {
+                val result = DriveAuth.authorize(this@MainActivity)
+                !result.hasResolution() && result.accessToken != null
+            } catch (e: ApiException) {
+                false
+            }
+            if (granted) {
+                driveMessage.value = null
+                app.useBackend(Backend.GoogleDrive)
+            } else {
+                driveMessage.value = "Google Drive was not connected."
+            }
         }
-        if (granted) app.useBackend(Backend.GoogleDrive) else driveMessage.value = "Google Drive was not connected."
     }
 
     /**
@@ -118,6 +127,7 @@ class MainActivity : ComponentActivity() {
             // `backend drive` (with an optional `root` so each test run starts from an empty folder).
             when (intent.getStringExtra("backend")) {
                 "drive" -> {
+                    intent.getStringExtra("account")?.let { DriveAuth.accountName = it }
                     intent.getStringExtra("root")?.let { app.useBackend(Backend.LocalFolder, driveRoot = it) }
                     connectDrive()
                 }
