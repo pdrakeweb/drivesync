@@ -33,6 +33,9 @@ internal object SyncInstaller {
         "CREATE TABLE IF NOT EXISTS _ds_quarantine(change BLOB PRIMARY KEY NOT NULL, reason TEXT, tbl TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS _ds_rowstate(tbl TEXT NOT NULL, row_id TEXT NOT NULL, status TEXT NOT NULL, " +
             "PRIMARY KEY(tbl, row_id))",
+        "CREATE TABLE IF NOT EXISTS _ds_conflicts(tbl TEXT NOT NULL, row_id TEXT NOT NULL, col TEXT NOT NULL, " +
+            "lost_time INTEGER NOT NULL, lost_replica TEXT NOT NULL, lost_value, kept_time INTEGER NOT NULL, " +
+            "kept_replica TEXT NOT NULL, kept_value, PRIMARY KEY(tbl, row_id, col, lost_time, lost_replica))",
     )
 
     /** Idempotent. Run on every open, and again after any migration, inside or outside a transaction. */
@@ -40,6 +43,11 @@ internal object SyncInstaller {
         db.beginTransaction()
         try {
             METADATA.forEach(db::execSQL)
+            // Columns added after the first builds of this adapter.
+            for (table in listOf("_ds_outbox", "_ds_cells")) {
+                addColumn(db, table, "prev_time", "INTEGER")
+                addColumn(db, table, "prev_replica", "TEXT")
+            }
             db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES('replica', ?)", arrayOf<Any?>(newReplicaId()))
             for (key in listOf("clock", "applying", "pinned")) {
                 db.execSQL("INSERT OR IGNORE INTO _ds_meta(key, value) VALUES(?, 0)", arrayOf<Any?>(key))
@@ -68,14 +76,29 @@ internal object SyncInstaller {
 
     private fun newReplicaId(): String = UUID.randomUUID().toString()
 
+    private fun addColumn(db: SupportSQLiteDatabase, table: String, column: String, type: String) {
+        val present = Sql.query(db, "PRAGMA table_info($table)") { c ->
+            val name = c.getColumnIndexOrThrow("name")
+            generateSequence { if (c.moveToNext()) c.getString(name) else null }.toList()
+        }
+        if (column !in present) db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
+    }
+
     private fun createTriggers(db: SupportSQLiteDatabase, table: SyncTable, columns: List<String>) {
         val t = table.name
         val id = "CAST(NEW.\"${table.primaryKey}\" AS TEXT)"
         val oldId = "CAST(OLD.\"${table.primaryKey}\" AS TEXT)"
-        fun capture(column: String, where: String = "") =
-            "INSERT INTO _ds_outbox(tbl, row_id, col, value, time) SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK $where; " +
-                "INSERT OR REPLACE INTO _ds_cells(tbl, row_id, col, value, time, replica) " +
-                "SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK, $REPLICA $where; "
+        // A field write also records the timestamp of the value it replaces (Change.prev). The
+        // subqueries read the cell before the same statement replaces it.
+        fun capture(column: String, where: String = "", withPrevious: Boolean = false): String {
+            val old = "FROM _ds_cells WHERE tbl = '$t' AND row_id = $id AND col = '$column'"
+            val prevTime = if (withPrevious) "(SELECT time $old)" else "NULL"
+            val prevReplica = if (withPrevious) "(SELECT replica $old)" else "NULL"
+            return "INSERT INTO _ds_outbox(tbl, row_id, col, value, time, prev_time, prev_replica) " +
+                "SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK, $prevTime, $prevReplica $where; " +
+                "INSERT OR REPLACE INTO _ds_cells(tbl, row_id, col, value, time, replica, prev_time, prev_replica) " +
+                "SELECT '$t', $id, '$column', NEW.\"$column\", $CLOCK, $REPLICA, $prevTime, $prevReplica $where; "
+        }
         // Whole-row classes stamp every column of one write with the same timestamp.
         val sharedClock = table.mergeClass != MergeClass.LWW_FIELDS
 
@@ -93,7 +116,7 @@ internal object SyncInstaller {
         }
         for (column in columns) {
             if (!sharedClock) insert.append("$TICK; ")
-            insert.append(capture(column))
+            insert.append(capture(column, withPrevious = !sharedClock))
         }
         db.execSQL("CREATE TRIGGER \"_ds_ai_$t\" AFTER INSERT ON \"$t\" WHEN $NOT_APPLYING BEGIN $insert END")
 
@@ -109,7 +132,7 @@ internal object SyncInstaller {
             }
             MergeClass.LWW_FIELDS -> for (column in columns) {
                 val changed = "WHERE NEW.\"$column\" IS NOT OLD.\"$column\""
-                update.append("$TICK AND NEW.\"$column\" IS NOT OLD.\"$column\"; ").append(capture(column, changed))
+                update.append("$TICK AND NEW.\"$column\" IS NOT OLD.\"$column\"; ").append(capture(column, changed, withPrevious = true))
             }
         }
         db.execSQL("CREATE TRIGGER \"_ds_au_$t\" AFTER UPDATE ON \"$t\" WHEN $NOT_APPLYING BEGIN $update END")

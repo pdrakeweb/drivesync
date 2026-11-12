@@ -48,6 +48,11 @@ public data class Change(
     val column: String?,
     val value: Value?,
     val hlc: Hlc,
+    /**
+     * For a field write: the timestamp of the value this write replaced on the device that made it,
+     * null if there was none. It is what tells a knowing overwrite from a concurrent edit.
+     */
+    val prev: Hlc? = null,
 ) {
     init {
         require((column == null) == (value == null)) { "a tombstone has neither column nor value" }
@@ -63,4 +68,10 @@ public data class Change(
 }
 
 /** A stored column value with the timestamp of the write that set it. */
-public data class Cell(val value: Value, val hlc: Hlc)
+public data class Cell(val value: Value, val hlc: Hlc, val prev: Hlc? = null)
+
+/**
+ * Two devices edited the same column without either having seen the other's edit. [kept] is the
+ * value that remains everywhere; [lost] is the one it replaced, kept here so an app can show it.
+ */
+public data class Conflict(val row: RowRef, val column: String, val kept: Cell, val lost: Cell)

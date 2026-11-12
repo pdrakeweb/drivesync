@@ -45,7 +45,7 @@ private const val V1_TO_V2 = """
 """
 
 private fun schema(version: Int) = syncSchema(version) {
-    table("notes", MergeClass.LWW_FIELDS)
+    table("notes", MergeClass.LWW_FIELDS, recordConflicts = true)
     table("items", MergeClass.LWW_FIELDS) { parent("note_id", "notes") }
     table("settings", MergeClass.LWW_ROW)
     table("log", MergeClass.APPEND_ONLY)
@@ -239,6 +239,38 @@ class RoomLocalStoreTest {
         report = d.store.apply(listOf(remote("items", "i1", "text", Value.Text("now complete"), far)), registry)
         assertEquals(emptyList<RowRef>(), report.held)
         assertEquals(listOf("i1|null|now complete"), d.rows("items"))
+    }
+
+    // --- conflict log
+
+    @Test
+    fun `concurrent edits of one column are kept in the conflict log, knowing overwrites are not`() = runBlocking {
+        val a = device(); val b = device()
+        a.db.execSQL("INSERT INTO notes(id, title, body) VALUES('n1', 'original', 'x')")
+        a.sync(); b.sync()
+        a.db.execSQL("UPDATE notes SET title = 'from a' WHERE id = 'n1'")
+        Thread.sleep(5)
+        b.db.execSQL("UPDATE notes SET title = 'from b' WHERE id = 'n1'")
+        a.sync(); b.sync(); a.sync()
+
+        for (d in listOf(a, b)) {
+            val conflict = d.store.conflicts().single()
+            assertEquals(RowRef("notes", "n1"), conflict.row)
+            assertEquals("title", conflict.column)
+            assertEquals(Value.Text("from b"), conflict.kept.value)
+            assertEquals(Value.Text("from a"), conflict.lost.value)
+            assertEquals(listOf("n1|from b|x"), d.rows("notes"))
+        }
+
+        a.db.execSQL("UPDATE notes SET title = 'a again, having seen b' WHERE id = 'n1'")
+        a.sync(); b.sync(); a.sync(); b.sync()
+        assertEquals("a knowing overwrite is not a conflict", 1, b.store.conflicts().size)
+        assertEquals(listOf("n1|a again, having seen b|x"), b.rows("notes"))
+
+        b.store.clearConflicts()
+        assertEquals(0, b.store.conflicts().size)
+        b.sync(); a.sync(); b.sync()
+        assertEquals("cleared entries do not come back", 0, b.store.conflicts().size)
     }
 
     // --- end to end

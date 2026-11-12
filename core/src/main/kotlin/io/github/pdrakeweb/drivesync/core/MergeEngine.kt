@@ -37,6 +37,12 @@ public interface MergeState {
     public fun quarantine(item: Quarantined)
 
     public fun release(item: Quarantined)
+
+    /**
+     * Adds to the conflict log. Returns false, changing nothing, if this lost value (same row,
+     * column and timestamp) is already in the log, so redelivery never duplicates an entry.
+     */
+    public fun recordConflict(conflict: Conflict): Boolean
 }
 
 /** What one [LocalStore.apply] call did, and what is still set aside afterwards. */
@@ -51,6 +57,8 @@ public data class ApplyReport(
     val held: List<RowRef> = emptyList(),
     /** Rows whose parent was deleted; the app decides what to do with them. */
     val orphaned: List<RowRef> = emptyList(),
+    /** Conflicts first recorded by this call (tables that opted in only). */
+    val conflicts: List<Conflict> = emptyList(),
 )
 
 /**
@@ -62,6 +70,7 @@ public object MergeEngine {
     public fun apply(state: MergeState, changes: List<Change>, registry: MergeRegistry): ApplyReport {
         var applied = 0
         var ignored = 0
+        val found = ArrayList<Conflict>()
         // Everything set aside is tried again on every apply: an app upgrade may have taught the
         // registry a table, or relaxed the validator. What is still refused is quarantined again.
         val retry = state.quarantined().toList()
@@ -79,13 +88,26 @@ public object MergeEngine {
                 state.quarantine(Quarantined(change, QuarantineReason.Rejected(rejection)))
                 continue
             }
-            if (mergeOne(state, change, spec.mergeClass)) applied++ else ignored++
+            if (mergeOne(state, change, spec, found)) applied++ else ignored++
         }
         val totals = state.quarantined().groupingBy { it.change.table }.eachCount()
-        return ApplyReport(applied = applied, ignored = ignored, quarantined = totals)
+        return ApplyReport(applied = applied, ignored = ignored, quarantined = totals, conflicts = found)
     }
 
-    private fun mergeOne(state: MergeState, change: Change, mergeClass: MergeClass): Boolean {
+    /**
+     * Records a conflict when the author of [kept] cannot have seen [lost]: the value it replaced
+     * ([Cell.prev]) is older than [lost], or there was none. A knowing overwrite, a redelivered
+     * change and an older ancestor all fail that test, so none of them is reported.
+     */
+    private fun noteConflict(state: MergeState, spec: TableSpec, row: RowRef, column: String, kept: Cell, lost: Cell, found: MutableList<Conflict>) {
+        if (!spec.recordConflicts || kept.hlc.replica == lost.hlc.replica || kept.value == lost.value) return
+        val seenByAuthor = kept.prev
+        if (seenByAuthor != null && seenByAuthor >= lost.hlc) return
+        val conflict = Conflict(row, column, kept, lost)
+        if (state.recordConflict(conflict)) found += conflict
+    }
+
+    private fun mergeOne(state: MergeState, change: Change, spec: TableSpec, found: MutableList<Conflict>): Boolean {
         val row = change.row
         val tombstone = state.tombstone(row)
         if (change.isTombstone) {
@@ -98,15 +120,17 @@ public object MergeEngine {
         if (tombstone != null) return false
 
         val column = change.column!!
-        val cell = Cell(change.value!!, change.hlc)
+        val cell = Cell(change.value!!, change.hlc, change.prev)
         val cells = state.cells(row)
         val current = cells[column]
-        return when (mergeClass) {
+        return when (spec.mergeClass) {
             MergeClass.LWW_FIELDS ->
                 if (current == null || change.hlc > current.hlc) {
+                    if (current != null) noteConflict(state, spec, row, column, kept = cell, lost = current, found)
                     state.putCell(row, column, cell)
                     true
                 } else {
+                    if (change.hlc < current.hlc) noteConflict(state, spec, row, column, kept = current, lost = cell, found)
                     false
                 }
 

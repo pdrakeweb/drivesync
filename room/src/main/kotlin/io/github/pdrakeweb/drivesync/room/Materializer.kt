@@ -144,14 +144,31 @@ internal class SqlMergeState(private val db: SupportSQLiteDatabase) : MergeState
     }
 
     override fun cells(row: RowRef): Map<String, Cell> =
-        Sql.query(db, "SELECT col, value, time, replica FROM _ds_cells WHERE tbl = ? AND row_id = ?", arrayOf<Any?>(row.table, row.rowId)) { c ->
+        Sql.query(
+            db,
+            "SELECT col, value, time, replica, prev_time, prev_replica FROM _ds_cells WHERE tbl = ? AND row_id = ?",
+            arrayOf<Any?>(row.table, row.rowId),
+        ) { c ->
             val out = LinkedHashMap<String, Cell>()
-            while (c.moveToNext()) out[c.getString(0)] = Cell(Sql.value(c, 1), hlc(c.getLong(2), c.getString(3)))
+            while (c.moveToNext()) {
+                val prev = if (c.isNull(4)) null else hlc(c.getLong(4), c.getString(5))
+                out[c.getString(0)] = Cell(Sql.value(c, 1), hlc(c.getLong(2), c.getString(3)), prev)
+            }
             out
         }
 
     override fun putCell(row: RowRef, column: String, cell: Cell) {
-        db.compileStatement("INSERT OR REPLACE INTO _ds_cells(tbl, row_id, col, value, time, replica) VALUES(?, ?, ?, ?, ?, ?)").use { s ->
+        db.compileStatement(
+            "INSERT OR REPLACE INTO _ds_cells(tbl, row_id, col, value, time, replica, prev_time, prev_replica) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+        ).use { s ->
+            val prev = cell.prev
+            if (prev == null) {
+                s.bindNull(7)
+                s.bindNull(8)
+            } else {
+                s.bindLong(7, prev.time)
+                s.bindString(8, prev.replica.value)
+            }
             s.bindString(1, row.table)
             s.bindString(2, row.rowId)
             s.bindString(3, column)
@@ -181,6 +198,23 @@ internal class SqlMergeState(private val db: SupportSQLiteDatabase) : MergeState
             arrayOf<Any?>(ChangeCodec.encode(item.change), ChangeCodec.reason(item.reason), item.change.table),
         )
     }
+
+    override fun recordConflict(conflict: io.github.pdrakeweb.drivesync.core.Conflict): Boolean =
+        db.compileStatement(
+            "INSERT OR IGNORE INTO _ds_conflicts(tbl, row_id, col, lost_time, lost_replica, lost_value, " +
+                "kept_time, kept_replica, kept_value) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).use { s ->
+            s.bindString(1, conflict.row.table)
+            s.bindString(2, conflict.row.rowId)
+            s.bindString(3, conflict.column)
+            s.bindLong(4, conflict.lost.hlc.time)
+            s.bindString(5, conflict.lost.hlc.replica.value)
+            Sql.bind(s, 6, conflict.lost.value)
+            s.bindLong(7, conflict.kept.hlc.time)
+            s.bindString(8, conflict.kept.hlc.replica.value)
+            Sql.bind(s, 9, conflict.kept.value)
+            s.executeInsert() != -1L
+        }
 
     override fun release(item: io.github.pdrakeweb.drivesync.core.Quarantined) {
         db.execSQL("DELETE FROM _ds_quarantine WHERE change = ?", arrayOf<Any?>(ChangeCodec.encode(item.change)))

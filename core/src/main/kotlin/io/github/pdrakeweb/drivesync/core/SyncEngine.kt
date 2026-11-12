@@ -1,7 +1,10 @@
 package io.github.pdrakeweb.drivesync.core
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -50,6 +53,7 @@ public class SyncEngine(
     private val _pending = MutableStateFlow(0)
     private val _held = MutableStateFlow<List<RowRef>>(emptyList())
     private val _orphaned = MutableStateFlow<List<RowRef>>(emptyList())
+    private val _conflicts = MutableSharedFlow<Conflict>(replay = 0, extraBufferCapacity = 1024)
 
     @Volatile
     private var knownReplicas: Map<ReplicaId, ReplicaFile> = emptyMap()
@@ -76,6 +80,12 @@ public class SyncEngine(
 
     /** Rows kept but not shown because a parent was deleted; the app decides what to do with them. */
     public val orphaned: StateFlow<List<RowRef>> = _orphaned.asStateFlow()
+
+    /**
+     * Conflicts as they are found while merging, for tables that opted in with
+     * [TableSpec.recordConflicts]. Emitted once each; a store also keeps them as a log.
+     */
+    public fun conflicts(): Flow<Conflict> = _conflicts.asSharedFlow()
 
     /** Call after local writes so [pending] reflects them before the next cycle. */
     public suspend fun refreshPending() {
@@ -167,6 +177,7 @@ public class SyncEngine(
             try {
                 pull(id, file, batches, stats) {
                     batches++
+                    it.conflicts.forEach(_conflicts::tryEmit)
                     report = it
                 }
             } catch (e: SyncException) {
