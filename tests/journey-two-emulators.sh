@@ -34,6 +34,8 @@ CHROME="$CHROME"'|.*waiting to upload|Nothing waiting to upload|End-to-end encry
 CHROME="$CHROME"'|Sync is off on this device|Choose a passphrase.*|Passphrase|Turn on|Working'
 CHROME="$CHROME"'|Storage: .*|Use Google Drive|Google Drive was not connected.|Could not reach.*'
 CHROME="$CHROME"'|Saved in your password manager as|Sync passphrase|Suggest one'
+CHROME="$CHROME"'|Change passphrase|Scan a code from another device|Passphrase changed.*|Set this device up again'
+CHROME="$CHROME"'|This device.s copy was restored.*|That join code.*'
 CHROME="$CHROME"'|.*will upload once sync is on|That passphrase does not match.*|Use at least 8 characters.'
 
 # app <serial> [extras as one string, quoted for the device shell]

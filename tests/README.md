@@ -74,11 +74,25 @@ are checked but file contents are not; the local-folder run covers contents.
 Recorded run: `RESULTS-02-google-drive.txt` (11 Nov 2026, 22 checks, all PASS), final screen of
 device B in `02-device-b-drive-final.png`.
 
+## Scenario 03: join by code, change of passphrase, restored database
+
+`tests/journey-setup-features.sh <serial>` on one emulator, pressing the real controls
+(`tests/ui.sh` finds a control by its text and taps it). It sets sync up, reads the join code from
+the "Add another device" dialog, wipes the app and joins again by typing the code; changes the
+passphrase and shows that only the new one joins; then replaces the database with an older copy
+of itself (`run-as`, debug build) and uses the "Set this device up again" button.
+
+Recorded run: `RESULTS-03-setup-features.txt` (12 Nov 2026, 24 checks, all PASS).
+
 ## Not yet covered on devices
 
 - The `BlobStore` contract suite against real Drive (`./gradlew :backend-drive:test -PdriveToken=<token>`)
   has not been run: it needs a raw access token, which the journey never exposes.
-- Scanning a join QR code (the sample draws one; no scanner is built).
+- Scanning a join QR code with a camera. The sample has a scan button (Google's code scanner); the
+  journey types the code instead, because an emulator camera has nothing to point at.
+- Saving the passphrase to Google Password Manager and having it filled on another device: the
+  save sheet appears and was accepted once; Google then asked a separate consent question
+  ("Autofill with Google"), which is the account owner's to answer. Not completed.
 - Android 8.0 and 8.1 (API 26, 27): they ship an old Bouncy Castle under the same package name as the one used for Argon2id; this must be run on such an image before those versions are claimed.
 - Background sync firing on its own schedule (WorkManager is covered by Robolectric tests in
   `:android`; the journey triggers cycles explicitly so that it is deterministic).

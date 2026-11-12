@@ -106,3 +106,30 @@ Tell them, in the app, before they choose:
   it and the synced copy cannot be read, by anyone.
 
 The system's prompt lets them decline, which is the right shape: an offer, never a silent save.
+
+## Three more things found by testing on the emulator
+
+- **Autofill only watches a form once one of its fields has had focus.** A passphrase suggested
+  by the button and submitted without touching the field was never offered for saving. The
+  sample moves focus to the field when it fills in a suggestion.
+- **Android also offers to save when the fields simply disappear**, without `commit()`. That
+  matters for anything typed into the passphrase field that is *not* a passphrase. The sample
+  accepts a join code there; a join code is the key itself, and Android offered to save it as the
+  password. Call `AutofillManager.cancel()` before such a form goes away.
+- **Work that replaces the engine must not run in the screen's coroutine scope** if the screen is
+  rebuilt around the engine. The sample's "Set this device up again" button was cancelled half way
+  for exactly this reason; it now runs in the activity's scope.
+
+## Changing or forgetting the passphrase
+
+`SyncSetup.changePassphrase(new)` works from any device that still holds the key, which makes it
+the answer to a forgotten passphrase. Devices already syncing are not asked for anything; a
+device added later needs the new one. Show it with the same two fields (the fixed username and a
+new-password field) so the password manager updates the entry it already has, and report the
+submission the same way. It does not lock out someone who already has the key.
+
+## Status of the save-then-fill round trip
+
+Saving was taken as far as Google's sheet and its Continue button. Google then showed a second,
+separate consent screen ("Autofill with Google") for the account, which was left for the account
+owner. Having a saved passphrase filled in on another device is therefore still not shown.

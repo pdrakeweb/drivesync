@@ -89,6 +89,14 @@ public interface KeyManager {
      */
     public suspend fun unlock(passphrase: CharArray, wrapped: WrappedKey)
 
+    /**
+     * Wraps the key this device already holds under a new passphrase, for a person who has
+     * forgotten the old one or wants to change it. The data key itself does not change, so every
+     * stored object and every other device is unaffected.
+     * Throws [SyncException] with [SyncError.KeyMissing] when this device holds no key.
+     */
+    public suspend fun rewrap(passphrase: CharArray): WrappedKey
+
     /** Authenticated encryption bound to [path], so an object moved to another path is rejected. */
     public suspend fun encrypt(path: String, plain: ByteArray): ByteArray
 

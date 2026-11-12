@@ -61,6 +61,7 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version = "16.1.0" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-play = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }

@@ -1,0 +1,28 @@
+== set up a first device
+PASS  sync is on
+PASS  the join code is shown as text (52 characters)
+== a later device joins with the code typed into the passphrase box
+PASS  a later device offers to scan
+PASS  a later device does not offer to generate
+PASS  a damaged code is refused with a reason
+PASS  joined with the code
+PASS  the note from the first device arrived
+== change the passphrase
+PASS  a new passphrase was suggested and shown
+== after changing the passphrase
+PASS  the change is confirmed on screen
+PASS  this device keeps syncing without being asked for anything
+PASS  the old passphrase no longer joins
+PASS  the new passphrase joins
+PASS  and the notes arrive
+== a database restored from an older copy
+PASS  a later change is uploaded (Eggs)
+PASS  the restored copy is detected and says so
+PASS  the fix is offered as a button
+PASS  after the fix, sync works
+PASS  the note written after the restore is uploaded
+PASS  note present: Milk
+PASS  note present: Bread
+PASS  note present: Eggs
+PASS  note present: Jam
+0 failed
