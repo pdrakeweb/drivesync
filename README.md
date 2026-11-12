@@ -3,7 +3,7 @@
 Local-first sync for Android apps through storage the user owns. Every device works offline;
 changes merge deterministically; the cloud copy is end-to-end encrypted; there is no server.
 
-**Status:** in development, not released. S0 to S2 are built, and S3 (encryption, passphrase and join code, Drive backend) is built but its Drive proof is blocked on an OAuth client; see `docs/ROADMAP.md`.
+**Status:** in development, not released. S0 to S4 are built. One proof is outstanding: syncing through a real Google Drive account (S3), blocked on an OAuth client; see `docs/ROADMAP.md`.
 
 Build and test: `./gradlew build` (JDK 17+). The long simulation: `./gradlew :testing:test -PsimRuns=10000`.
 
