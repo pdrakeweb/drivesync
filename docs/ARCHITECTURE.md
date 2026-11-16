@@ -196,5 +196,7 @@ rules by example and let a copy of the pattern in another language check itself.
 ## 6. Build and release
 
 Kotlin, Gradle version catalog, JDK 17, Android library modules targeting minSdk 26 (lowest that
-the Keystore and WorkManager features need), Apache 2.0, published to Maven Central under a
-namespace Pete chooses. Binary-compatibility validator on public APIs from 0.1. Dokka for API docs.
+the Keystore and WorkManager features need), Apache 2.0, published to Maven Central as
+`io.github.pdrakeweb:drivesync-<module>` (D-009). Until 0.1.0, `./gradlew publishToMavenLocal`
+publishes `0.1.0-SNAPSHOT` to the local Maven repository (D-021); the setup is in the root
+`build.gradle.kts`. Binary-compatibility validator on public APIs from 0.1. Dokka for API docs.
